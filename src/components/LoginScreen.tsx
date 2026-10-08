@@ -1,11 +1,8 @@
-import { useState, useEffect } from 'react';
-import { supabase, verifyAdminCredentials, getAdminCredentials, resetAdminCredentials } from '@/lib/supabase';
+import { useState } from 'react';
+import { supabase, verifyAdminCredentials, getAdminCredentials } from '@/lib/supabase';
 import type { Student } from '@/lib/supabase';
 import type { SessionUser } from '@/App';
-import { subscribeAuth, googleSignIn } from '@/lib/googleAuth';
-import { ensureSpreadsheetSetup } from '@/lib/googleSheets';
-import type { User } from 'firebase/auth';
-import { GraduationCap, Loader2, AlertCircle, FileSpreadsheet, CheckCircle, Shield } from 'lucide-react';
+import { GraduationCap, Loader2, AlertCircle } from 'lucide-react';
 
 interface Props {
   onLogin: (user: SessionUser) => void;
@@ -16,27 +13,6 @@ export function LoginScreen({ onLogin }: Props) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [googleUser, setGoogleUser] = useState<User | null>(null);
-  const [connectingGoogle, setConnectingGoogle] = useState(false);
-
-  useEffect(() => {
-    const unsub = subscribeAuth((user) => {
-      setGoogleUser(user);
-    });
-    return () => unsub();
-  }, []);
-
-  const handleConnectGoogle = async () => {
-    setConnectingGoogle(true);
-    try {
-      await googleSignIn();
-      await ensureSpreadsheetSetup();
-    } catch {
-      // ignore
-    } finally {
-      setConnectingGoogle(false);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,56 +134,6 @@ export function LoginScreen({ onLogin }: Props) {
               )}
             </button>
           </form>
-
-          {/* Google Sheets Database Status & 1-Click Admin Login */}
-          <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col items-center text-center space-y-3">
-            {googleUser ? (
-              <div className="w-full space-y-2.5">
-                <div className="inline-flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
-                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                  <span className="font-medium">Google Sheets Database Connected</span>
-                </div>
-
-                {/* 1-Click Direct Admin Access for Connected Google Account */}
-                <button
-                  type="button"
-                  onClick={() => onLogin({ role: 'admin', name: googleUser.displayName || 'Admin' })}
-                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-all shadow-sm text-xs"
-                >
-                  <Shield className="w-4 h-4" />
-                  <span>Enter as Admin (Google Verified)</span>
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={handleConnectGoogle}
-                disabled={connectingGoogle}
-                className="w-full flex items-center justify-center gap-2 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 py-2.5 px-3 rounded-lg transition-colors disabled:opacity-60"
-              >
-                {connectingGoogle ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
-                ) : (
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                )}
-                <span>Connect Google Sheets Database</span>
-              </button>
-            )}
-
-            {/* Quick Reset Button if PIN is forgotten */}
-            <button
-              type="button"
-              onClick={() => {
-                resetAdminCredentials();
-                setUsername('admin');
-                setPin('5678');
-                setError('');
-              }}
-              className="text-[11px] text-slate-400 hover:text-sky-600 underline transition-colors"
-            >
-              Forgot Admin PIN? Reset &amp; autofill default (admin / 5678)
-            </button>
-          </div>
         </div>
       </div>
     </div>

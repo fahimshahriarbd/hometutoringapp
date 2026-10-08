@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase, getAdminCredentials, setAdminCredentials } from '@/lib/supabase';
 import type { Student, StudyDay, Lesson, Question, QuizResult } from '@/lib/supabase';
 import type { SessionUser } from '@/App';
-import { GoogleSheetsBar } from '@/components/GoogleSheetsBar';
 import { appendRow } from '@/lib/googleSheets';
 import {
   GraduationCap, LogOut, Search, Plus, Pencil, Trash2, X, Loader2,
@@ -44,10 +43,10 @@ export function AdminPanel({ user, onLogout }: Props) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowChangePassword(true)}
-              className="flex items-center gap-1.5 text-xs text-slate-700 hover:text-sky-600 font-medium px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 transition-colors"
+              title="Change Password"
+              className="p-2 text-slate-600 hover:text-sky-600 rounded-lg border border-slate-200 hover:bg-sky-50 transition-colors"
             >
-              <KeyRound className="w-3.5 h-3.5 text-slate-500" />
-              <span>Change Password</span>
+              <KeyRound className="w-4 h-4" />
             </button>
             <button
               onClick={onLogout}
@@ -81,7 +80,6 @@ export function AdminPanel({ user, onLogout }: Props) {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
-        <GoogleSheetsBar />
         {tab === 'students' && <StudentsTab />}
         {tab === 'lessons' && <LessonsTab />}
         {tab === 'questions' && <QuestionsTab />}
