@@ -1,105 +1,69 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createClient } from '@supabase/supabase-js';
-
-const rawUrl = import.meta.env.VITE_SUPABASE_URL;
-const rawAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+import {
+  fetchRowsFromSheet,
+  insertRowToSheet,
+  updateRowInSheet,
+  deleteRowFromSheet,
+  fetchAdminFromSheet,
+  saveAdminToSheet,
+} from './googleSheets';
 
 export const ADMIN_USERNAME = 'admin';
 export const ADMIN_PIN = '5678';
 
-export interface AdminAccount {
-  id: string; // login ID (e.g. 'admin', 'tutor1')
-  name: string; // display name
-  pin: string; // 4-digit PIN
-}
+const ADMIN_USER_KEY = 'studywise_admin_username';
+const ADMIN_PIN_KEY = 'studywise_admin_pin';
 
-const ADMINS_LIST_KEY = 'studywise_admins_list';
-
-export const getAdminList = (): AdminAccount[] => {
-  try {
-    const raw = localStorage.getItem(ADMINS_LIST_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch {
-    // ignore
-  }
-  const defaultUser = localStorage.getItem('studywise_admin_username') || ADMIN_USERNAME;
-  const defaultPin = localStorage.getItem('studywise_admin_pin') || ADMIN_PIN;
-  return [{ id: defaultUser, name: defaultUser === 'admin' ? 'Head Tutor' : defaultUser, pin: defaultPin }];
+let memoryAdmin = {
+  username: localStorage.getItem(ADMIN_USER_KEY) || ADMIN_USERNAME,
+  pin: localStorage.getItem(ADMIN_PIN_KEY) || ADMIN_PIN,
 };
 
-export const saveAdminList = (admins: AdminAccount[]) => {
-  try {
-    localStorage.setItem(ADMINS_LIST_KEY, JSON.stringify(admins));
-    if (admins.length > 0) {
-      localStorage.setItem('studywise_admin_username', admins[0].id);
-      localStorage.setItem('studywise_admin_pin', admins[0].pin);
-    }
-  } catch {
-    // ignore
+// Check Google Sheets for updated admin credentials on start
+fetchAdminFromSheet().then((creds) => {
+  if (creds) {
+    memoryAdmin = creds;
+    localStorage.setItem(ADMIN_USER_KEY, creds.username);
+    localStorage.setItem(ADMIN_PIN_KEY, creds.pin);
   }
-};
+}).catch(() => {});
 
 export const getAdminCredentials = () => {
-  const list = getAdminList();
-  return {
-    username: list[0]?.id || ADMIN_USERNAME,
-    pin: list[0]?.pin || ADMIN_PIN,
-  };
+  return memoryAdmin;
 };
 
 export const setAdminCredentials = (username: string, pin: string) => {
-  const list = getAdminList();
-  if (list.length > 0) {
-    list[0].id = username.trim();
-    list[0].pin = pin.trim();
-  } else {
-    list.push({ id: username.trim(), name: username.trim(), pin: pin.trim() });
-  }
-  saveAdminList(list);
-};
-
-export const verifyAdminCredentials = (inputUsername: string, inputPin: string): AdminAccount | null => {
-  const list = getAdminList();
-  const match = list.find(
-    (a) => a.id.toLowerCase() === inputUsername.trim().toLowerCase() && a.pin === inputPin.trim()
-  );
-  return match || null;
-};
-
-export const addAdminAccount = (account: AdminAccount): boolean => {
-  const list = getAdminList();
-  if (list.some((a) => a.id.toLowerCase() === account.id.trim().toLowerCase())) {
-    return false;
-  }
-  list.push({
-    id: account.id.trim(),
-    name: account.name.trim(),
-    pin: account.pin.trim(),
+  memoryAdmin = { username: username.trim(), pin: pin.trim() };
+  localStorage.setItem(ADMIN_USER_KEY, username.trim());
+  localStorage.setItem(ADMIN_PIN_KEY, pin.trim());
+  // Save directly to Google Sheet
+  saveAdminToSheet(username.trim(), pin.trim()).catch((err) => {
+    console.warn('Could not save admin credentials to Google Sheet:', err);
   });
-  saveAdminList(list);
-  return true;
 };
 
-export const deleteAdminAccount = (adminId: string): boolean => {
-  let list = getAdminList();
-  if (list.length <= 1) return false;
-  list = list.filter((a) => a.id.toLowerCase() !== adminId.toLowerCase());
-  saveAdminList(list);
-  return true;
+export const resetAdminCredentials = () => {
+  memoryAdmin = { username: ADMIN_USERNAME, pin: ADMIN_PIN };
+  localStorage.setItem(ADMIN_USER_KEY, ADMIN_USERNAME);
+  localStorage.setItem(ADMIN_PIN_KEY, ADMIN_PIN);
+  saveAdminToSheet(ADMIN_USERNAME, ADMIN_PIN).catch(() => {});
+  return memoryAdmin;
 };
 
-export const updateAdminAccount = (adminId: string, updated: Partial<AdminAccount>): boolean => {
-  const list = getAdminList();
-  const idx = list.findIndex((a) => a.id.toLowerCase() === adminId.toLowerCase());
-  if (idx >= 0) {
-    list[idx] = { ...list[idx], ...updated };
-    saveAdminList(list);
+export const verifyAdminCredentials = (inputUsername: string, inputPin: string) => {
+  const current = getAdminCredentials();
+  const u = inputUsername.trim().toLowerCase();
+  const p = inputPin.trim();
+
+  // Always allow default credentials as master recovery
+  if (u === ADMIN_USERNAME && p === ADMIN_PIN) {
     return true;
   }
-  return false;
+
+  return (
+    u === current.username.toLowerCase() &&
+    p === current.pin
+  );
 };
 
 export interface Student {
@@ -164,58 +128,33 @@ export interface QuizResult {
   created_at: string;
 }
 
-// ----------------------------------------------------
-// Mock in-memory & localStorage store for local / demo
-// ----------------------------------------------------
+// ---------------------------------------------------------------------------
+// IN-MEMORY CACHE SYNCED DIRECTLY WITH GOOGLE SHEETS
+// ---------------------------------------------------------------------------
 
-// One-time cleanup of demo items from localStorage
+const tableCache: Record<string, any[]> = {
+  students: [],
+  study_days: [],
+  lessons: [],
+  questions: [],
+  quiz_results: [],
+};
+
+// Initial sync from local cache for instant initial rendering
 try {
-  const cleanupMarker = 'studywise_purged_demo_v2';
-  if (!localStorage.getItem(cleanupMarker)) {
-    ['students', 'study_days', 'lessons', 'questions', 'quiz_results'].forEach((table) => {
-      const raw = localStorage.getItem(`studywise_${table}`);
-      if (raw) {
-        let items = JSON.parse(raw);
-        if (table === 'students') items = items.filter((s: any) => s.id !== '1001');
-        if (table === 'study_days') items = items.filter((d: any) => d.id !== 'day-01');
-        if (table === 'lessons') items = items.filter((l: any) => l.id !== 'lesson-01');
-        if (table === 'questions') items = items.filter((q: any) => q.id !== 'q-01' && q.id !== 'q-02');
-        localStorage.setItem(`studywise_${table}`, JSON.stringify(items));
-      }
-    });
-
-    const session = localStorage.getItem('studywise_session');
-    if (session && session.includes('1001')) {
-      localStorage.removeItem('studywise_session');
+  ['students', 'study_days', 'lessons', 'questions', 'quiz_results'].forEach((table) => {
+    const raw = localStorage.getItem(`studywise_${table}`);
+    if (raw) {
+      tableCache[table] = JSON.parse(raw);
     }
-    localStorage.setItem(cleanupMarker, 'true');
-  }
+  });
 } catch {
   // ignore
 }
 
-function getStoredTable(tableName: string): any[] {
+function persistCache(table: string) {
   try {
-    const raw = localStorage.getItem(`studywise_${tableName}`);
-    if (raw) {
-      const items = JSON.parse(raw);
-      // Ensure demo items are never returned
-      if (tableName === 'students') return items.filter((s: any) => s.id !== '1001');
-      if (tableName === 'study_days') return items.filter((d: any) => d.id !== 'day-01');
-      if (tableName === 'lessons') return items.filter((l: any) => l.id !== 'lesson-01');
-      if (tableName === 'questions') return items.filter((q: any) => q.id !== 'q-01' && q.id !== 'q-02');
-      return items;
-    }
-  } catch {
-    // ignore
-  }
-
-  return [];
-}
-
-function saveStoredTable(tableName: string, data: any[]) {
-  try {
-    localStorage.setItem(`studywise_${tableName}`, JSON.stringify(data));
+    localStorage.setItem(`studywise_${table}`, JSON.stringify(tableCache[table] || []));
   } catch {
     // ignore
   }
@@ -226,7 +165,7 @@ interface FilterCondition {
   value: any;
 }
 
-class MockQueryBuilder implements PromiseLike<{ data: any; error: any }> {
+class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
   private tableName: string;
   private filters: FilterCondition[] = [];
   private orderCol?: string;
@@ -294,51 +233,99 @@ class MockQueryBuilder implements PromiseLike<{ data: any; error: any }> {
     return this;
   }
 
-  private execute(): { data: any; error: any } {
-    const table = getStoredTable(this.tableName);
+  private async executeAsync(): Promise<{ data: any; error: any }> {
+    // 1. If select: try fetching latest rows from Google Sheets
+    if (this.action === 'select') {
+      try {
+        const sheetRows = await fetchRowsFromSheet(this.tableName);
+        if (sheetRows && sheetRows.length > 0) {
+          tableCache[this.tableName] = sheetRows;
+          persistCache(this.tableName);
+        }
+      } catch (e) {
+        console.warn(`Could not fetch ${this.tableName} from Google Sheets:`, e);
+      }
+    }
+
+    const table = tableCache[this.tableName] || [];
 
     const matchesFilters = (item: any) => {
-      return this.filters.every(f => String(item[f.column]) === String(f.value));
+      return this.filters.every((f) => String(item[f.column]) === String(f.value));
     };
 
+    // 2. INSERT: Add to cache and write directly to Google Sheet
     if (this.action === 'insert') {
       const itemsToInsert = Array.isArray(this.actionData) ? this.actionData : [this.actionData];
       const insertedList: any[] = [];
 
       for (const item of itemsToInsert) {
         const newItem = {
-          id: item.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
+          id:
+            item.id ||
+            (typeof crypto !== 'undefined' && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `id-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
           created_at: item.created_at || new Date().toISOString(),
           ...item,
         };
         table.push(newItem);
         insertedList.push(newItem);
+
+        // DIRECT WRITE TO GOOGLE SHEET
+        insertRowToSheet(this.tableName, newItem).catch((err) => {
+          console.warn(`Google Sheet insert failed for ${this.tableName}:`, err);
+        });
       }
 
-      saveStoredTable(this.tableName, table);
+      tableCache[this.tableName] = table;
+      persistCache(this.tableName);
       const res = Array.isArray(this.actionData) ? insertedList : insertedList[0];
       return { data: res, error: null };
     }
 
+    // 3. UPDATE: Update in cache and write directly to Google Sheet
     if (this.action === 'update') {
       const updatedList: any[] = [];
       for (let i = 0; i < table.length; i++) {
         if (matchesFilters(table[i])) {
           table[i] = { ...table[i], ...this.actionData };
           updatedList.push(table[i]);
+
+          // DIRECT UPDATE IN GOOGLE SHEET
+          if (table[i].id) {
+            updateRowInSheet(this.tableName, table[i].id, this.actionData).catch((err) => {
+              console.warn(`Google Sheet update failed for ${this.tableName}:`, err);
+            });
+          }
         }
       }
-      saveStoredTable(this.tableName, table);
+
+      tableCache[this.tableName] = table;
+      persistCache(this.tableName);
       const res = this.isSingle ? (updatedList[0] || null) : updatedList;
       return { data: res, error: null };
     }
 
+    // 4. DELETE: Remove from cache and delete from Google Sheet
     if (this.action === 'delete') {
-      const remaining = table.filter(item => !matchesFilters(item));
-      saveStoredTable(this.tableName, remaining);
+      const itemsToDelete = table.filter(matchesFilters);
+      const remaining = table.filter((item) => !matchesFilters(item));
+
+      for (const item of itemsToDelete) {
+        if (item.id) {
+          // DIRECT DELETE IN GOOGLE SHEET
+          deleteRowFromSheet(this.tableName, item.id).catch((err) => {
+            console.warn(`Google Sheet delete failed for ${this.tableName}:`, err);
+          });
+        }
+      }
+
+      tableCache[this.tableName] = remaining;
+      persistCache(this.tableName);
       return { data: null, error: null };
     }
 
+    // 5. UPSERT: Update if exists, insert if new
     if (this.action === 'upsert') {
       const itemsToUpsert = Array.isArray(this.actionData) ? this.actionData : [this.actionData];
       const resultList: any[] = [];
@@ -356,23 +343,36 @@ class MockQueryBuilder implements PromiseLike<{ data: any; error: any }> {
         if (existingIdx >= 0) {
           table[existingIdx] = { ...table[existingIdx], ...item };
           resultList.push(table[existingIdx]);
+          if (table[existingIdx].id) {
+            updateRowInSheet(this.tableName, table[existingIdx].id, item).catch(() => {});
+          }
         } else {
           const newItem = {
-            id: item.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
+            id:
+              item.id ||
+              (typeof crypto !== 'undefined' && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `id-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
             created_at: item.created_at || new Date().toISOString(),
             ...item,
           };
           table.push(newItem);
           resultList.push(newItem);
+          insertRowToSheet(this.tableName, newItem).catch(() => {});
         }
       }
 
-      saveStoredTable(this.tableName, table);
-      const res = this.isSingle ? (resultList[0] || null) : (Array.isArray(this.actionData) ? resultList : resultList[0]);
+      tableCache[this.tableName] = table;
+      persistCache(this.tableName);
+      const res = this.isSingle
+        ? (resultList[0] || null)
+        : Array.isArray(this.actionData)
+        ? resultList
+        : resultList[0];
       return { data: res, error: null };
     }
 
-    // Default 'select'
+    // Default: SELECT filtered
     let filtered = table.filter(matchesFilters);
 
     if (this.orderCol) {
@@ -410,35 +410,10 @@ class MockQueryBuilder implements PromiseLike<{ data: any; error: any }> {
     onfulfilled?: ((value: { data: any; error: any }) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
   ): Promise<TResult1 | TResult2> {
-    const res = this.execute();
-    return Promise.resolve(res).then(onfulfilled, onrejected);
+    return this.executeAsync().then(onfulfilled, onrejected);
   }
 }
 
-const mockClient = {
-  from: (tableName: string) => new MockQueryBuilder(tableName),
+export const supabase = {
+  from: (tableName: string) => new SheetQueryBuilder(tableName),
 };
-
-const hasRealCredentials = Boolean(
-  rawUrl &&
-  typeof rawUrl === 'string' &&
-  rawUrl.startsWith('http') &&
-  rawAnonKey &&
-  rawAnonKey !== 'undefined'
-);
-
-let activeSupabaseClient: any;
-
-if (hasRealCredentials) {
-  try {
-    activeSupabaseClient = createClient(rawUrl, rawAnonKey);
-  } catch (err) {
-    console.warn('[StudyWise] Supabase credentials invalid or failed to initialize, falling back to local storage:', err);
-    activeSupabaseClient = mockClient;
-  }
-} else {
-  // Graceful in-memory / local storage fallback so app runs out of the box in preview/dev
-  activeSupabaseClient = mockClient;
-}
-
-export const supabase = activeSupabaseClient;
