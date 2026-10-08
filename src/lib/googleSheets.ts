@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Student, StudyDay, Lesson, Question, QuizResult } from './supabase';
+import { getBangladeshTimeString } from './time';
 
 export const GOOGLE_APPS_SCRIPT_URL =
   'https://script.google.com/macros/s/AKfycbwesalffjJI8qSlvjN56k_caEPhp6w5HL-1hTnk53cVfmTNegyUIDPyARqqmJbXx50EtQ/exec';
@@ -90,7 +91,7 @@ export async function fetchRowsFromSheet(tableKey: string): Promise<any[]> {
     const rows: any[][] = res.data;
     if (rows.length <= 1) return [];
 
-    return rows.slice(1).map((row) => {
+    const mapped = rows.slice(1).map((row) => {
       const item: Record<string, any> = {};
       schema.keys.forEach((key, idx) => {
         const val = row[idx] ?? '';
@@ -110,6 +111,22 @@ export async function fetchRowsFromSheet(tableKey: string): Promise<any[]> {
       });
       return item;
     });
+
+    // Deduplicate by ID to prevent duplicate key collisions
+    const seen = new Set<string>();
+    const uniqueItems: any[] = [];
+    for (const item of mapped) {
+      const idKey = item.id ? String(item.id) : null;
+      if (idKey) {
+        if (!seen.has(idKey)) {
+          seen.add(idKey);
+          uniqueItems.push(item);
+        }
+      } else {
+        uniqueItems.push(item);
+      }
+    }
+    return uniqueItems;
   } catch (err) {
     console.warn(`Error reading ${schema.title} from Google Sheet:`, err);
     return [];
@@ -209,7 +226,7 @@ export async function saveAdminToSheet(username: string, pin: string): Promise<b
     const res = await callAppsScript({
       action: 'insert',
       table: 'Admin',
-      row: [username.trim(), pin.trim(), new Date().toISOString()],
+      row: [username.trim(), pin.trim(), getBangladeshTimeString()],
     });
     return res.status === 'success';
   } catch (err) {

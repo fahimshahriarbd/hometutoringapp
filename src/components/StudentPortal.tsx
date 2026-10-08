@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Student, StudyDay, Lesson, QuizResult } from '@/lib/supabase';
 import type { SessionUser } from '@/App';
+import { formatDayDate } from '@/lib/time';
 import { QuizModal } from '@/components/QuizModal';
 import { GraduationCap, LogOut, FileText, CheckCircle2, Loader2, BookOpen } from 'lucide-react';
 
@@ -90,15 +91,7 @@ export function StudentPortal({ user, onLogout }: Props) {
     setQuizState({ lessonId: result.lesson_id, subject });
   };
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr + 'T00:00:00');
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const day = d.getDate();
-    const suffix = ['th', 'st', 'nd', 'rd'];
-    const v = day % 100;
-    const ord = suffix[(v - 20) % 10] || suffix[v] || suffix[0];
-    return `${day}${ord} ${months[d.getMonth()]} ${d.getFullYear()}`;
-  };
+  const formatDate = (dateStr: string) => formatDayDate(dateStr);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -163,8 +156,8 @@ export function StudentPortal({ user, onLogout }: Props) {
             ) : days.length === 0 ? (
               <div className="text-center py-12 text-sm text-slate-500">No lessons logged yet.</div>
             ) : (
-              days.map((day) => (
-                <div key={day.id} className="border border-slate-200 rounded-lg overflow-hidden">
+              days.map((day, idx) => (
+                <div key={`${day.id}-${idx}`} className="border border-slate-200 rounded-lg overflow-hidden">
                   {/* Day Header */}
                   <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200">
                     <div className="flex items-center gap-2">
@@ -179,10 +172,10 @@ export function StudentPortal({ user, onLogout }: Props) {
                     {day.lessons.length === 0 ? (
                       <div className="px-4 py-3 text-xs text-slate-400">No topics logged.</div>
                     ) : (
-                      day.lessons.map((lesson) => {
+                      day.lessons.map((lesson, lIdx) => {
                         const completed = results.get(lesson.id);
                         return (
-                          <div key={lesson.id} className="px-4 py-3">
+                          <div key={`${lesson.id}-${lIdx}`} className="px-4 py-3">
                             <span className="inline-block text-xs font-medium text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded mb-2">
                               {lesson.subject}
                             </span>

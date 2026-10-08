@@ -45,9 +45,16 @@ export function GoogleSheetsBar() {
   };
 
   const handleSyncAll = async () => {
-    const confirmed = window.confirm(
-      'Are you sure you want to push all current records (Students, Lessons, Questions, and Quiz Results) to your Google Sheet?'
-    );
+    let confirmed = true;
+    try {
+      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+        confirmed = window.confirm(
+          'Are you sure you want to push all current records (Students, Lessons, Questions, and Quiz Results) to your Google Sheet?'
+        );
+      }
+    } catch {
+      confirmed = true;
+    }
     if (!confirmed) return;
 
     setIsSyncing(true);

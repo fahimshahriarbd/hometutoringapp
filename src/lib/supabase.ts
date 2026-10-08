@@ -11,6 +11,9 @@ import {
 export const ADMIN_USERNAME = 'admin';
 export const ADMIN_PIN = '5678';
 
+import { getBangladeshTimeString, getBangladeshDateString, formatDayDate } from './time';
+export { getBangladeshTimeString, getBangladeshDateString, formatDayDate };
+
 const ADMIN_USER_KEY = 'studywise_admin_username';
 const ADMIN_PIN_KEY = 'studywise_admin_pin';
 
@@ -132,20 +135,98 @@ export interface QuizResult {
 // IN-MEMORY CACHE SYNCED DIRECTLY WITH GOOGLE SHEETS
 // ---------------------------------------------------------------------------
 
+const SEED_STUDENTS: Student[] = [
+  {
+    id: '1001',
+    name: 'Student 01',
+    class_name: 'HSC 2nd Year',
+    subjects: 'Biology, Chemistry',
+    image_url: '',
+    pin: '1234',
+    created_at: getBangladeshTimeString(),
+  },
+];
+
+const SEED_STUDY_DAYS: StudyDay[] = [
+  {
+    id: 'day-seed-1',
+    student_id: '1001',
+    day_label: 'DAY-1',
+    day_date: getBangladeshDateString(),
+    created_at: getBangladeshTimeString(),
+  },
+];
+
+const SEED_LESSONS: Lesson[] = [
+  {
+    id: 'lesson-seed-1',
+    study_day_id: 'day-seed-1',
+    subject: 'Biology',
+    short_note: 'Cell division (Mitosis & Meiosis) and chromosomal structures.',
+    pdf_url: '',
+    test_enabled: true,
+    created_at: getBangladeshTimeString(),
+  },
+];
+
+const SEED_QUESTIONS: Question[] = [
+  {
+    id: 'q-seed-1',
+    lesson_id: 'lesson-seed-1',
+    question: 'During which phase of mitosis do chromosomes align at the equatorial plate?',
+    option_a: 'Prophase',
+    option_b: 'Metaphase',
+    option_c: 'Anaphase',
+    option_d: 'Telophase',
+    answer: 'B',
+    explanation: 'Chromosomes align along the metaphase plate during metaphase.',
+    created_at: getBangladeshTimeString(),
+  },
+  {
+    id: 'q-seed-2',
+    lesson_id: 'lesson-seed-1',
+    question: 'How many daughter cells are produced at the end of Meiosis?',
+    option_a: '2 diploid cells',
+    option_b: '4 diploid cells',
+    option_c: '4 haploid cells',
+    option_d: '2 haploid cells',
+    answer: 'C',
+    explanation: 'Meiosis results in 4 genetically unique haploid daughter cells.',
+    created_at: getBangladeshTimeString(),
+  },
+];
+
 const tableCache: Record<string, any[]> = {
-  students: [],
-  study_days: [],
-  lessons: [],
-  questions: [],
+  students: SEED_STUDENTS,
+  study_days: SEED_STUDY_DAYS,
+  lessons: SEED_LESSONS,
+  questions: SEED_QUESTIONS,
   quiz_results: [],
 };
+
+const lastFetchedAt: Record<string, number> = {};
+const CACHE_TTL_MS = 60 * 1000; // 1 minute fresh cache
+
+function deduplicateList(list: any[]): any[] {
+  if (!Array.isArray(list)) return [];
+  const map = new Map<string, any>();
+  for (const item of list) {
+    if (!item) continue;
+    const key = item.id != null ? String(item.id).trim() : JSON.stringify(item);
+    map.set(key, item);
+  }
+  return Array.from(map.values());
+}
 
 // Initial sync from local cache for instant initial rendering
 try {
   ['students', 'study_days', 'lessons', 'questions', 'quiz_results'].forEach((table) => {
     const raw = localStorage.getItem(`studywise_${table}`);
     if (raw) {
-      tableCache[table] = JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        tableCache[table] = deduplicateList(parsed);
+      }
     }
   });
 } catch {
@@ -154,7 +235,9 @@ try {
 
 function persistCache(table: string) {
   try {
-    localStorage.setItem(`studywise_${table}`, JSON.stringify(tableCache[table] || []));
+    const cleaned = deduplicateList(tableCache[table] || []);
+    tableCache[table] = cleaned;
+    localStorage.setItem(`studywise_${table}`, JSON.stringify(cleaned));
   } catch {
     // ignore
   }
@@ -180,7 +263,8 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
     this.tableName = tableName;
   }
 
-  select() {
+  select(...args: any[]) {
+    void args;
     return this;
   }
 
@@ -201,7 +285,8 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
     return this;
   }
 
-  upsert(data: any) {
+  upsert(data: any, ...options: any[]) {
+    void options;
     this.action = 'upsert';
     this.actionData = data;
     return this;
@@ -234,16 +319,38 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
   }
 
   private async executeAsync(): Promise<{ data: any; error: any }> {
-    // 1. If select: try fetching latest rows from Google Sheets
+    // 1. If select: check memory cache first so tab switching is instantaneous
     if (this.action === 'select') {
-      try {
-        const sheetRows = await fetchRowsFromSheet(this.tableName);
-        if (sheetRows && sheetRows.length > 0) {
-          tableCache[this.tableName] = sheetRows;
-          persistCache(this.tableName);
+      const now = Date.now();
+      const last = lastFetchedAt[this.tableName] || 0;
+      const isExpired = now - last > CACHE_TTL_MS;
+      const hasCached = (tableCache[this.tableName]?.length || 0) > 0;
+
+      if (!hasCached) {
+        // Initial fetch when cache has no records yet
+        try {
+          const sheetRows = await fetchRowsFromSheet(this.tableName);
+          if (sheetRows && sheetRows.length > 0) {
+            tableCache[this.tableName] = deduplicateList(sheetRows);
+            persistCache(this.tableName);
+          }
+          lastFetchedAt[this.tableName] = Date.now();
+        } catch (e) {
+          console.warn(`Could not fetch ${this.tableName} from Google Sheets:`, e);
         }
-      } catch (e) {
-        console.warn(`Could not fetch ${this.tableName} from Google Sheets:`, e);
+      } else if (isExpired) {
+        // Cache exists: return instantly and refresh in the background without blocking the UI
+        lastFetchedAt[this.tableName] = Date.now();
+        fetchRowsFromSheet(this.tableName)
+          .then((sheetRows) => {
+            if (sheetRows && sheetRows.length > 0) {
+              tableCache[this.tableName] = deduplicateList(sheetRows);
+              persistCache(this.tableName);
+            }
+          })
+          .catch((e) => {
+            console.warn(`Background fetch error for ${this.tableName}:`, e);
+          });
       }
     }
 
@@ -259,16 +366,23 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
       const insertedList: any[] = [];
 
       for (const item of itemsToInsert) {
+        const id =
+          item.id ||
+          (typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `id-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`);
         const newItem = {
-          id:
-            item.id ||
-            (typeof crypto !== 'undefined' && crypto.randomUUID
-              ? crypto.randomUUID()
-              : `id-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
-          created_at: item.created_at || new Date().toISOString(),
+          created_at: item.created_at || getBangladeshTimeString(),
           ...item,
+          id: String(id).trim(),
         };
-        table.push(newItem);
+
+        const existingIdx = table.findIndex((r: any) => String(r.id).trim() === String(newItem.id));
+        if (existingIdx >= 0) {
+          table[existingIdx] = { ...table[existingIdx], ...newItem };
+        } else {
+          table.push(newItem);
+        }
         insertedList.push(newItem);
 
         // DIRECT WRITE TO GOOGLE SHEET
@@ -353,7 +467,7 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
               (typeof crypto !== 'undefined' && crypto.randomUUID
                 ? crypto.randomUUID()
                 : `id-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
-            created_at: item.created_at || new Date().toISOString(),
+            created_at: item.created_at || getBangladeshTimeString(),
             ...item,
           };
           table.push(newItem);
@@ -373,7 +487,7 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
     }
 
     // Default: SELECT filtered
-    let filtered = table.filter(matchesFilters);
+    let filtered = deduplicateList(table.filter(matchesFilters));
 
     if (this.orderCol) {
       const col = this.orderCol;

@@ -75,7 +75,6 @@ export function LoginScreen({ onLogin }: Props) {
               <GraduationCap className="w-8 h-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">StudyWise</h1>
-            <p className="text-sm text-slate-500 mt-1">Sign in with your Student ID or Admin credentials</p>
           </div>
 
           {/* Form */}

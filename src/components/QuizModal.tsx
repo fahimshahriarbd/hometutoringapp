@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Question, QuizResult, ReviewItem } from '@/lib/supabase';
-import { appendRow } from '@/lib/googleSheets';
+import { getBangladeshTimeString } from '@/lib/time';
 import { X, Clock, Loader2, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 
 interface Props {
@@ -87,6 +87,7 @@ export function QuizModal({ lessonId, subject, studentId, existingResult, onClos
     }, 1000);
 
     return () => stopTimer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, result, loading, error, questions.length]);
 
   const handleAnswer = (questionId: string, choice: string) => {
@@ -154,7 +155,7 @@ export function QuizModal({ lessonId, subject, studentId, existingResult, onClos
           .update({
             score, total, percentage,
             review: review as unknown as Record<string, unknown>[],
-            created_at: new Date().toISOString(),
+            created_at: getBangladeshTimeString(),
           })
           .eq('id', existing.id)
           .select('*')
@@ -169,6 +170,7 @@ export function QuizModal({ lessonId, subject, studentId, existingResult, onClos
             lesson_id: lessonId,
             score, total, percentage,
             review: review as unknown as Record<string, unknown>[],
+            created_at: getBangladeshTimeString(),
           })
           .select('*')
           .single();
@@ -177,16 +179,6 @@ export function QuizModal({ lessonId, subject, studentId, existingResult, onClos
       }
 
       setResult(savedResult);
-      appendRow('Quiz Results', [
-        savedResult.id,
-        studentId,
-        lessonId,
-        score,
-        total,
-        `${percentage}%`,
-        new Date().toISOString(),
-        JSON.stringify(review),
-      ]).catch(() => {});
     } catch {
       // Fallback to local result
       setResult({
@@ -195,7 +187,7 @@ export function QuizModal({ lessonId, subject, studentId, existingResult, onClos
         lesson_id: lessonId,
         score, total, percentage,
         review,
-        created_at: new Date().toISOString(),
+        created_at: getBangladeshTimeString(),
       });
     } finally {
       setSubmitting(false);

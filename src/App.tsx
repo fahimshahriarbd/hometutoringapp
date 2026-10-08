@@ -8,12 +8,20 @@ export type SessionUser =
   | { role: 'admin'; name: string };
 
 function App() {
-  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('studywise_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // Keep session refreshed if needed
     const saved = localStorage.getItem('studywise_session');
-    if (saved) {
+    if (saved && !sessionUser) {
       try {
         setSessionUser(JSON.parse(saved));
       } catch {
@@ -21,7 +29,7 @@ function App() {
       }
     }
     setLoading(false);
-  }, []);
+  }, [sessionUser]);
 
   const handleLogin = (user: SessionUser) => {
     localStorage.setItem('studywise_session', JSON.stringify(user));

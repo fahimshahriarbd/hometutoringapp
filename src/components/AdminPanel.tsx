@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase, getAdminCredentials, setAdminCredentials } from '@/lib/supabase';
 import type { Student, StudyDay, Lesson, Question, QuizResult } from '@/lib/supabase';
 import type { SessionUser } from '@/App';
-import { appendRow } from '@/lib/googleSheets';
+import { formatDayDate, getBangladeshDateString } from '@/lib/time';
 import {
   GraduationCap, LogOut, Search, Plus, Pencil, Trash2, X, Loader2,
   Users, BookOpen, HelpCircle, BarChart3, KeyRound,
@@ -80,10 +80,10 @@ export function AdminPanel({ user, onLogout }: Props) {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
-        {tab === 'students' && <StudentsTab />}
-        {tab === 'lessons' && <LessonsTab />}
-        {tab === 'questions' && <QuestionsTab />}
-        {tab === 'results' && <ResultsTab />}
+        <div className={tab === 'students' ? 'block' : 'hidden'}><StudentsTab /></div>
+        <div className={tab === 'lessons' ? 'block' : 'hidden'}><LessonsTab /></div>
+        <div className={tab === 'questions' ? 'block' : 'hidden'}><QuestionsTab /></div>
+        <div className={tab === 'results' ? 'block' : 'hidden'}><ResultsTab /></div>
       </div>
 
       {showChangePassword && (
@@ -100,21 +100,29 @@ export function AdminPanel({ user, onLogout }: Props) {
 // =================== STUDENTS TAB ===================
 
 function StudentsTab() {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [students, setStudents] = useState<Student[]>(() => {
+    try {
+      const raw = localStorage.getItem('studywise_students');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editStudent, setEditStudent] = useState<Student | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const loadStudents = useCallback(async () => {
-    setLoading(true);
     try {
       const { data, error } = await supabase.from('students').select('*').order('id', { ascending: true });
       if (error) throw error;
-      setStudents((data || []) as Student[]);
+      const studs = (data || []) as Student[];
+      const uniqueStuds = Array.from(new Map(studs.map(s => [String(s.id).trim(), s])).values());
+      setStudents(uniqueStuds);
     } catch {
-      setStudents([]);
+      // keep current cached students
     } finally {
       setLoading(false);
     }
@@ -122,11 +130,17 @@ function StudentsTab() {
 
   useEffect(() => { loadStudents(); }, [loadStudents]);
 
-  const filtered = students.filter(s =>
-    !search ||
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.id.includes(search) ||
-    (s.class_name && s.class_name.toLowerCase().includes(search.toLowerCase()))
+  const filtered = Array.from(
+    new Map(
+      students
+        .filter(s =>
+          !search ||
+          s.name.toLowerCase().includes(search.toLowerCase()) ||
+          s.id.includes(search) ||
+          (s.class_name && s.class_name.toLowerCase().includes(search.toLowerCase()))
+        )
+        .map(s => [String(s.id).trim(), s])
+    ).values()
   );
 
   const handleDelete = async (id: string) => {
@@ -169,8 +183,8 @@ function StudentsTab() {
         <div className="text-center py-12 text-sm text-slate-500">No students registered yet.</div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          {filtered.map(s => (
-            <div key={s.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex gap-4">
+          {filtered.map((s, idx) => (
+            <div key={`${s.id}-${idx}`} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex gap-4">
               <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200">
                 {s.image_url ? (
                   <img src={s.image_url} alt={s.name} className="w-full h-full object-cover" />
@@ -243,16 +257,6 @@ function AddStudentModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
         setSaving(false);
         return;
       }
-
-      appendRow('Students', [
-        studentId,
-        name.trim(),
-        className.trim(),
-        subjects.trim(),
-        pin.trim(),
-        imageUrl.trim() || '',
-        new Date().toISOString(),
-      ]).catch(() => {});
 
       setMsg(`Student saved! Assigned ID: ${studentId}`);
       setTimeout(() => onSaved(), 800);
@@ -353,23 +357,26 @@ function LessonsTab() {
 
   // Add study day form
   const [dayLabel, setDayLabel] = useState('DAY-');
-  const [dayDate, setDayDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dayDate, setDayDate] = useState(getBangladeshDateString());
   const [dayMsg, setDayMsg] = useState('');
   const [savingDay, setSavingDay] = useState(false);
 
   const loadStudents = useCallback(async () => {
     const { data } = await supabase.from('students').select('*').order('id', { ascending: true });
     const studs = (data || []) as Student[];
-    setStudents(studs);
-    if (studs.length > 0 && !selectedStudent) setSelectedStudent(studs[0].id);
-    return studs;
+    const uniqueStuds = Array.from(new Map(studs.map(s => [String(s.id).trim(), s])).values());
+    setStudents(uniqueStuds);
+    if (uniqueStuds.length > 0 && !selectedStudent) setSelectedStudent(uniqueStuds[0].id);
+    return uniqueStuds;
   }, [selectedStudent]);
 
   const loadStudyDays = useCallback(async (studentId: string) => {
     const { data } = await supabase.from('study_days').select('*').eq('student_id', studentId).order('day_date', { ascending: false });
-    setStudyDays((data || []) as StudyDay[]);
-    if (data && data.length > 0) {
-      setSelectedDay((data as StudyDay[])[0].id);
+    const days = (data || []) as StudyDay[];
+    const uniqueDays = Array.from(new Map(days.map(d => [String(d.id).trim(), d])).values());
+    setStudyDays(uniqueDays);
+    if (uniqueDays.length > 0) {
+      setSelectedDay(uniqueDays[0].id);
     } else {
       setSelectedDay('');
     }
@@ -379,7 +386,9 @@ function LessonsTab() {
     if (!studyDayId) { setLessons([]); return; }
     setLoading(true);
     const { data } = await supabase.from('lessons').select('*').eq('study_day_id', studyDayId).order('created_at', { ascending: true });
-    setLessons((data || []) as Lesson[]);
+    const allL = (data || []) as Lesson[];
+    const uniqueL = Array.from(new Map(allL.map(l => [String(l.id).trim(), l])).values());
+    setLessons(uniqueL);
     setLoading(false);
   }, []);
 
@@ -388,16 +397,17 @@ function LessonsTab() {
       const studs = await loadStudents();
       if (studs.length > 0) await loadStudyDays(studs[0].id);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (selectedStudent) loadStudyDays(selectedStudent);
-  }, [selectedStudent]);
+  }, [selectedStudent, loadStudyDays]);
 
   useEffect(() => {
     if (selectedDay) loadLessons(selectedDay);
     else setLessons([]);
-  }, [selectedDay]);
+  }, [selectedDay, loadLessons]);
 
   const handleAddDay = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -435,16 +445,6 @@ function LessonsTab() {
         test_enabled: lTestEnabled,
       });
       if (error) { setLessonMsg(error.message); setSavingLesson(false); return; }
-      appendRow('Lessons', [
-        `lesson-${Date.now()}`,
-        selectedStudent || '',
-        dayLabel || '',
-        dayDate || '',
-        lSubject.trim(),
-        lNote.trim(),
-        lPdf.trim() || '',
-        lTestEnabled ? 'Yes' : 'No',
-      ]).catch(() => {});
       setLessonMsg('Lesson saved successfully.');
       setLSubject('');
       setLNote('');
@@ -468,10 +468,7 @@ function LessonsTab() {
     setConfirmDelete(null);
   };
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr + 'T00:00:00');
-    return d.toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' });
-  };
+  const formatDate = (dateStr: string) => formatDayDate(dateStr);
 
   return (
     <div className="space-y-4">
@@ -483,7 +480,9 @@ function LessonsTab() {
           <form onSubmit={handleAddDay} className="space-y-3">
             <Field label="Select Student">
               <select value={selectedStudent} onChange={e => setSelectedStudent(e.target.value)} className={inputCls}>
-                {students.map(s => <option key={s.id} value={s.id}>{s.name} ({s.id})</option>)}
+                {Array.from(new Map(students.map(s => [String(s.id).trim(), s])).values()).map((s, idx) => (
+                  <option key={`${s.id}-${idx}`} value={s.id}>{s.name} ({s.id})</option>
+                ))}
               </select>
             </Field>
             <Field label="Day Label">
@@ -507,7 +506,9 @@ function LessonsTab() {
             <Field label="Select Study Day">
               <select value={selectedDay} onChange={e => setSelectedDay(e.target.value)} className={inputCls} required>
                 <option value="">-- Select a day --</option>
-                {studyDays.map(d => <option key={d.id} value={d.id}>{d.day_label} ({formatDate(d.day_date)})</option>)}
+                {Array.from(new Map(studyDays.map(d => [String(d.id).trim(), d])).values()).map((d, idx) => (
+                  <option key={`${d.id}-${idx}`} value={d.id}>{d.day_label} ({formatDate(d.day_date)})</option>
+                ))}
               </select>
             </Field>
             <Field label="Subject">
@@ -541,8 +542,8 @@ function LessonsTab() {
           <div className="text-xs text-slate-500 py-4">No lessons for selected study day.</div>
         ) : (
           <div className="space-y-2">
-            {lessons.map(l => (
-              <div key={l.id} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
+            {lessons.map((l, idx) => (
+              <div key={`${l.id}-${idx}`} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-slate-800">{l.subject}</div>
                   <div className="text-xs text-slate-500 truncate">{l.short_note?.slice(0, 50)}</div>
@@ -645,19 +646,26 @@ function QuestionsTab() {
 
     const results = await Promise.all(lessonPromises);
     const flat = results.flat();
-    setAllLessons(flat);
-    if (flat.length > 0 && !selectedLesson) setSelectedLesson(flat[0].id);
+    const uniqueLessons = Array.from(new Map(flat.map(l => [String(l.id).trim(), l])).values());
+    setAllLessons(uniqueLessons);
+    if (uniqueLessons.length > 0 && !selectedLesson) setSelectedLesson(uniqueLessons[0].id);
   }, [selectedLesson]);
 
   const loadQuestions = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase.from('questions').select('*').order('created_at', { ascending: true });
     if (error) { setQuestions([]); setLoading(false); return; }
-    setQuestions((data || []) as Question[]);
+    const qs = (data || []) as Question[];
+    const uniqueQs = Array.from(new Map(qs.map(q => [String(q.id).trim(), q])).values());
+    setQuestions(uniqueQs);
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadAllLessons(); loadQuestions(); }, []);
+  useEffect(() => {
+    loadAllLessons();
+    loadQuestions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleAddQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -680,17 +688,6 @@ function QuestionsTab() {
         explanation: explanation.trim(),
       });
       if (error) { setQMsg(error.message); setSavingQ(false); return; }
-      appendRow('Questions', [
-        `q-${Date.now()}`,
-        selectedLesson,
-        qText.trim(),
-        optA.trim(),
-        optB.trim(),
-        optC.trim(),
-        optD.trim(),
-        correct,
-        explanation.trim(),
-      ]).catch(() => {});
       setQMsg('Question added successfully.');
       setQText(''); setOptA(''); setOptB(''); setOptC(''); setOptD(''); setExplanation('');
       await loadQuestions();
@@ -720,7 +717,11 @@ function QuestionsTab() {
           <Field label="Target Lesson">
             <select value={selectedLesson} onChange={e => setSelectedLesson(e.target.value)} className={inputCls} required>
               {allLessons.length === 0 ? <option value="">No lessons available</option> :
-                allLessons.map(l => <option key={l.id} value={l.id}>[{l.day_label}] {l.subject} - {l.short_note?.slice(0, 30)}</option>)}
+                allLessons.map((l, idx) => (
+                  <option key={`${l.id}-${idx}`} value={l.id}>
+                    [{l.day_label}] ({formatDayDate(l.day_date)}) {l.subject} - {l.short_note?.slice(0, 30)}
+                  </option>
+                ))}
             </select>
           </Field>
           <Field label="Question Text">
@@ -760,10 +761,10 @@ function QuestionsTab() {
           <div className="text-xs text-slate-500 py-4">No questions created yet.</div>
         ) : (
           <div className="space-y-2">
-            {questions.map(q => {
+            {questions.map((q, idx) => {
               const lesson = allLessons.find(l => l.id === q.lesson_id);
               return (
-                <div key={q.id} className="flex items-start gap-3 py-2 border-b border-slate-100 last:border-0">
+                <div key={`${q.id}-${idx}`} className="flex items-start gap-3 py-2 border-b border-slate-100 last:border-0">
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-slate-800">{q.question}</div>
                     <div className="text-xs text-slate-500 mt-0.5">
@@ -863,7 +864,9 @@ function ResultsTab() {
       try {
         const { data, error } = await supabase.from('quiz_results').select('*').order('created_at', { ascending: false });
         if (error) throw error;
-        setResults((data || []) as QuizResult[]);
+        const rawResults = (data || []) as QuizResult[];
+        const uniqueResults = Array.from(new Map(rawResults.map(r => [String(r.id).trim(), r])).values());
+        setResults(uniqueResults);
       } catch {
         setResults([]);
       } finally {
@@ -903,8 +906,8 @@ function ResultsTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {results.map(r => (
-              <tr key={r.id} className="hover:bg-slate-50 transition-colors">
+            {results.map((r, idx) => (
+              <tr key={`${r.id}-${idx}`} className="hover:bg-slate-50 transition-colors">
                 <td className="px-4 py-2.5 font-medium text-slate-800">{r.student_id}</td>
                 <td className="px-4 py-2.5 text-slate-600 text-xs">{r.lesson_id.slice(0, 8)}...</td>
                 <td className="px-4 py-2.5"><span className="font-bold text-green-600">{r.score} / {r.total}</span></td>
