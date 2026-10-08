@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase, getAdminCredentials, setAdminCredentials } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import type { Student, StudyDay, Lesson, Question, QuizResult } from '@/lib/supabase';
 import type { SessionUser } from '@/App';
 import { formatDayDate, getBangladeshDateString } from '@/lib/time';
-import { GoogleSheetsBar } from '@/components/GoogleSheetsBar';
 import {
   GraduationCap, LogOut, Search, Plus, Pencil, Trash2, X, Loader2,
-  Users, BookOpen, HelpCircle, BarChart3, KeyRound,
+  Users, BookOpen, HelpCircle, BarChart3,
 } from 'lucide-react';
 
 interface Props {
@@ -18,7 +17,6 @@ type Tab = 'students' | 'lessons' | 'questions' | 'results';
 
 export function AdminPanel({ user, onLogout }: Props) {
   const [tab, setTab] = useState<Tab>('students');
-  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const tabs: { id: Tab; label: string; icon: typeof Users }[] = [
     { id: 'students', label: 'Students', icon: Users },
@@ -42,13 +40,6 @@ export function AdminPanel({ user, onLogout }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowChangePassword(true)}
-              title="Change Password"
-              className="p-2 text-slate-600 hover:text-sky-600 rounded-lg border border-slate-200 hover:bg-sky-50 transition-colors"
-            >
-              <KeyRound className="w-4 h-4" />
-            </button>
             <button
               onClick={onLogout}
               className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-red-600 font-medium px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
@@ -81,16 +72,11 @@ export function AdminPanel({ user, onLogout }: Props) {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
-        <GoogleSheetsBar />
         <div className={tab === 'students' ? 'block' : 'hidden'}><StudentsTab /></div>
         <div className={tab === 'lessons' ? 'block' : 'hidden'}><LessonsTab /></div>
         <div className={tab === 'questions' ? 'block' : 'hidden'}><QuestionsTab /></div>
         <div className={tab === 'results' ? 'block' : 'hidden'}><ResultsTab /></div>
       </div>
-
-      {showChangePassword && (
-        <ChangeAdminPasswordModal onClose={() => setShowChangePassword(false)} />
-      )}
 
       <footer className="text-center text-xs text-slate-400 py-4">
         StudyWise &middot; Home Tutoring Management
@@ -1005,120 +991,5 @@ function ConfirmModal({ title, message, onConfirm, onCancel }: { title: string; 
         </div>
       </div>
     </div>
-  );
-}
-
-function ChangeAdminPasswordModal({ onClose }: { onClose: () => void }) {
-  const currentCreds = getAdminCredentials();
-  const [currentPin, setCurrentPin] = useState('');
-  const [newUsername, setNewUsername] = useState(currentCreds.username);
-  const [newPin, setNewPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-  const [msg, setMsg] = useState('');
-  const [isSuccess, setIsSuccess] = useState(false);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setMsg('');
-
-    if (currentPin.trim() !== currentCreds.pin) {
-      setMsg('Current PIN is incorrect.');
-      setIsSuccess(false);
-      return;
-    }
-
-    if (!newUsername.trim()) {
-      setMsg('Admin username cannot be empty.');
-      setIsSuccess(false);
-      return;
-    }
-
-    if (!newPin.trim()) {
-      setMsg('Please enter a new PIN.');
-      setIsSuccess(false);
-      return;
-    }
-
-    if (newPin.trim().length < 4) {
-      setMsg('New PIN must be at least 4 digits.');
-      setIsSuccess(false);
-      return;
-    }
-
-    if (newPin.trim() !== confirmPin.trim()) {
-      setMsg('New PIN and confirmation PIN do not match.');
-      setIsSuccess(false);
-      return;
-    }
-
-    setAdminCredentials(newUsername.trim(), newPin.trim());
-    setIsSuccess(true);
-    setMsg('Admin credentials updated successfully!');
-    setTimeout(() => {
-      onClose();
-    }, 1200);
-  };
-
-  return (
-    <ModalLayout title="Change Admin Password / PIN" subtitle="Update your administrator credentials" onClose={onClose}>
-      <form onSubmit={handleSubmit} className="space-y-3.5">
-        <Field label="Current PIN">
-          <input
-            type="password"
-            value={currentPin}
-            onChange={e => setCurrentPin(e.target.value)}
-            placeholder="Enter current PIN"
-            required
-            className={inputCls}
-          />
-        </Field>
-
-        <Field label="Admin Username">
-          <input
-            type="text"
-            value={newUsername}
-            onChange={e => setNewUsername(e.target.value)}
-            placeholder="e.g. admin"
-            required
-            className={inputCls}
-          />
-        </Field>
-
-        <Field label="New PIN">
-          <input
-            type="password"
-            value={newPin}
-            onChange={e => setNewPin(e.target.value)}
-            placeholder="Enter new 4-digit PIN"
-            required
-            className={inputCls}
-          />
-        </Field>
-
-        <Field label="Confirm New PIN">
-          <input
-            type="password"
-            value={confirmPin}
-            onChange={e => setConfirmPin(e.target.value)}
-            placeholder="Re-enter new PIN"
-            required
-            className={inputCls}
-          />
-        </Field>
-
-        {msg && (
-          <p className={`text-xs font-semibold p-2.5 rounded-lg ${isSuccess ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
-            {msg}
-          </p>
-        )}
-
-        <button
-          type="submit"
-          className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-2.5 rounded-lg transition-colors mt-2"
-        >
-          Save Changes
-        </button>
-      </form>
-    </ModalLayout>
   );
 }
