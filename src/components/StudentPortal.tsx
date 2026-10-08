@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import type { Student, StudyDay, Lesson, QuizResult, ReviewItem } from '@/lib/supabase';
+import type { Student, StudyDay, Lesson, QuizResult } from '@/lib/supabase';
 import type { SessionUser } from '@/App';
 import { QuizModal } from '@/components/QuizModal';
-import { GraduationCap, LogOut, FileText, Clock, CheckCircle2, ChevronRight, Loader2, BookOpen } from 'lucide-react';
+import { GraduationCap, LogOut, FileText, CheckCircle2, Loader2, BookOpen } from 'lucide-react';
 
 interface Props {
   user: Extract<SessionUser, { role: 'student' }>;

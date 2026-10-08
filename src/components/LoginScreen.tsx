@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { supabase, ADMIN_USERNAME, ADMIN_PIN } from '@/lib/supabase';
+import { supabase, verifyAdminCredentials, getAdminCredentials } from '@/lib/supabase';
 import type { Student } from '@/lib/supabase';
 import type { SessionUser } from '@/App';
-import { GraduationCap, ShieldCheck, Loader2, AlertCircle } from 'lucide-react';
+import { GraduationCap, Loader2, AlertCircle } from 'lucide-react';
 
 interface Props {
   onLogin: (user: SessionUser) => void;
@@ -28,8 +28,10 @@ export function LoginScreen({ onLogin }: Props) {
 
     try {
       // Check admin first
-      if (trimmedId.toLowerCase() === ADMIN_USERNAME && trimmedPin === ADMIN_PIN) {
-        onLogin({ role: 'admin', name: 'Fahim' });
+      if (verifyAdminCredentials(trimmedId, trimmedPin)) {
+        const adminName = getAdminCredentials().username;
+        const displayName = adminName.charAt(0).toUpperCase() + adminName.slice(1);
+        onLogin({ role: 'admin', name: displayName });
         return;
       }
 
@@ -132,22 +134,7 @@ export function LoginScreen({ onLogin }: Props) {
               )}
             </button>
           </form>
-
-          {/* Hint */}
-          <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-400">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Demo Student: ID <strong className="text-slate-600">1001</strong> PIN <strong className="text-slate-600">1234</strong></span>
-            </div>
-            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-400 mt-1">
-              <span>Admin: ID <strong className="text-slate-600">admin</strong> PIN <strong className="text-slate-600">5678</strong></span>
-            </div>
-          </div>
         </div>
-
-        <p className="text-center text-xs text-slate-400 mt-4">
-          Developed by <a href="https://fahimshahriar.com.bd" target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-sky-600 transition-colors">Fahim Shahriar</a>
-        </p>
       </div>
     </div>
   );

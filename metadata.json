@@ -1,0 +1,7 @@
+{
+  "name": "StudyWise - Home Tutoring & Student Learning",
+  "description": "Study planning and student learning management system with lesson tracking, quizzes, and progress monitoring.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

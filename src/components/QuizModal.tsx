@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Question, QuizResult, ReviewItem } from '@/lib/supabase';
+import { appendRow } from '@/lib/googleSheets';
 import { X, Clock, Loader2, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 
 interface Props {
@@ -176,6 +177,16 @@ export function QuizModal({ lessonId, subject, studentId, existingResult, onClos
       }
 
       setResult(savedResult);
+      appendRow('Quiz Results', [
+        savedResult.id,
+        studentId,
+        lessonId,
+        score,
+        total,
+        `${percentage}%`,
+        new Date().toISOString(),
+        JSON.stringify(review),
+      ]).catch(() => {});
     } catch {
       // Fallback to local result
       setResult({

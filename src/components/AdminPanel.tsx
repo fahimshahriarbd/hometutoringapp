@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, getAdminCredentials, setAdminCredentials } from '@/lib/supabase';
 import type { Student, StudyDay, Lesson, Question, QuizResult } from '@/lib/supabase';
 import type { SessionUser } from '@/App';
+import { GoogleSheetsBar } from '@/components/GoogleSheetsBar';
+import { appendRow } from '@/lib/googleSheets';
 import {
   GraduationCap, LogOut, Search, Plus, Pencil, Trash2, X, Loader2,
-  Users, BookOpen, HelpCircle, BarChart3, FileText, Check, Calendar,
+  Users, BookOpen, HelpCircle, BarChart3, KeyRound,
 } from 'lucide-react';
 
 interface Props {
@@ -16,6 +18,7 @@ type Tab = 'students' | 'lessons' | 'questions' | 'results';
 
 export function AdminPanel({ user, onLogout }: Props) {
   const [tab, setTab] = useState<Tab>('students');
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const tabs: { id: Tab; label: string; icon: typeof Users }[] = [
     { id: 'students', label: 'Students', icon: Users },
@@ -38,13 +41,22 @@ export function AdminPanel({ user, onLogout }: Props) {
               <p className="text-xs text-slate-500">Admin: <strong className="text-slate-700">{user.name}</strong></p>
             </div>
           </div>
-          <button
-            onClick={onLogout}
-            className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-red-600 font-medium px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Logout</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowChangePassword(true)}
+              className="flex items-center gap-1.5 text-xs text-slate-700 hover:text-sky-600 font-medium px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 transition-colors"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-slate-500" />
+              <span>পাসওয়ার্ড পরিবর্তন</span>
+            </button>
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-red-600 font-medium px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Logout</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -69,14 +81,19 @@ export function AdminPanel({ user, onLogout }: Props) {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
+        <GoogleSheetsBar />
         {tab === 'students' && <StudentsTab />}
         {tab === 'lessons' && <LessonsTab />}
         {tab === 'questions' && <QuestionsTab />}
         {tab === 'results' && <ResultsTab />}
       </div>
 
+      {showChangePassword && (
+        <ChangeAdminPasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
+
       <footer className="text-center text-xs text-slate-400 py-4">
-        Developed by <a href="https://fahimshahriar.com.bd" target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-sky-600">Fahim Shahriar</a>
+        StudyWise &middot; Home Tutoring Management
       </footer>
     </div>
   );
@@ -228,6 +245,16 @@ function AddStudentModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
         setSaving(false);
         return;
       }
+
+      appendRow('Students', [
+        studentId,
+        name.trim(),
+        className.trim(),
+        subjects.trim(),
+        pin.trim(),
+        imageUrl.trim() || '',
+        new Date().toISOString(),
+      ]).catch(() => {});
 
       setMsg(`Student saved! Assigned ID: ${studentId}`);
       setTimeout(() => onSaved(), 800);
@@ -410,6 +437,16 @@ function LessonsTab() {
         test_enabled: lTestEnabled,
       });
       if (error) { setLessonMsg(error.message); setSavingLesson(false); return; }
+      appendRow('Lessons', [
+        `lesson-${Date.now()}`,
+        selectedStudent || '',
+        dayLabel || '',
+        dayDate || '',
+        lSubject.trim(),
+        lNote.trim(),
+        lPdf.trim() || '',
+        lTestEnabled ? 'Yes' : 'No',
+      ]).catch(() => {});
       setLessonMsg('Lesson saved successfully.');
       setLSubject('');
       setLNote('');
@@ -427,7 +464,9 @@ function LessonsTab() {
     try {
       await supabase.from('lessons').delete().eq('id', id);
       setLessons(prev => prev.filter(l => l.id !== id));
-    } catch {}
+    } catch {
+      // ignore
+    }
     setConfirmDelete(null);
   };
 
@@ -522,13 +561,13 @@ function LessonsTab() {
         )}
       </div>
 
-      {editLesson && <EditLessonModal lesson={editLesson} studyDayId={selectedDay} onClose={() => setEditLesson(null)} onSaved={() => { setEditLesson(null); loadLessons(selectedDay); }} />}
+      {editLesson && <EditLessonModal lesson={editLesson} onClose={() => setEditLesson(null)} onSaved={() => { setEditLesson(null); loadLessons(selectedDay); }} />}
       {confirmDelete && <ConfirmModal title="Delete Lesson" message="Are you sure you want to delete this lesson? Associated questions will also be removed." onConfirm={() => handleDeleteLesson(confirmDelete)} onCancel={() => setConfirmDelete(null)} />}
     </div>
   );
 }
 
-function EditLessonModal({ lesson, studyDayId, onClose, onSaved }: { lesson: Lesson; studyDayId: string; onClose: () => void; onSaved: () => void }) {
+function EditLessonModal({ lesson, onClose, onSaved }: { lesson: Lesson; onClose: () => void; onSaved: () => void }) {
   const [subject, setSubject] = useState(lesson.subject);
   const [note, setNote] = useState(lesson.short_note);
   const [pdf, setPdf] = useState(lesson.pdf_url || '');
@@ -643,6 +682,17 @@ function QuestionsTab() {
         explanation: explanation.trim(),
       });
       if (error) { setQMsg(error.message); setSavingQ(false); return; }
+      appendRow('Questions', [
+        `q-${Date.now()}`,
+        selectedLesson,
+        qText.trim(),
+        optA.trim(),
+        optB.trim(),
+        optC.trim(),
+        optD.trim(),
+        correct,
+        explanation.trim(),
+      ]).catch(() => {});
       setQMsg('Question added successfully.');
       setQText(''); setOptA(''); setOptB(''); setOptC(''); setOptD(''); setExplanation('');
       await loadQuestions();
@@ -657,7 +707,9 @@ function QuestionsTab() {
     try {
       await supabase.from('questions').delete().eq('id', id);
       setQuestions(prev => prev.filter(q => q.id !== id));
-    } catch {}
+    } catch {
+      // ignore
+    }
     setConfirmDelete(null);
   };
 
@@ -923,5 +975,120 @@ function ConfirmModal({ title, message, onConfirm, onCancel }: { title: string; 
         </div>
       </div>
     </div>
+  );
+}
+
+function ChangeAdminPasswordModal({ onClose }: { onClose: () => void }) {
+  const currentCreds = getAdminCredentials();
+  const [currentPin, setCurrentPin] = useState('');
+  const [newUsername, setNewUsername] = useState(currentCreds.username);
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [msg, setMsg] = useState('');
+  const [isSuccess, setIsSuccess] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg('');
+
+    if (currentPin.trim() !== currentCreds.pin) {
+      setMsg('বর্তমান পিন কোডটি সঠিক নয়।');
+      setIsSuccess(false);
+      return;
+    }
+
+    if (!newUsername.trim()) {
+      setMsg('এডমিন ইউজারনেম খালি রাখা যাবে না।');
+      setIsSuccess(false);
+      return;
+    }
+
+    if (!newPin.trim()) {
+      setMsg('নতুন পিন কোড প্রদান করুন।');
+      setIsSuccess(false);
+      return;
+    }
+
+    if (newPin.trim().length < 4) {
+      setMsg('নতুন পিন কোড কমপক্ষে ৪ ডিজিটের হতে হবে।');
+      setIsSuccess(false);
+      return;
+    }
+
+    if (newPin.trim() !== confirmPin.trim()) {
+      setMsg('নতুন পিন এবং নিশ্চিতকরণ পিন মিলছে না।');
+      setIsSuccess(false);
+      return;
+    }
+
+    setAdminCredentials(newUsername.trim(), newPin.trim());
+    setIsSuccess(true);
+    setMsg('এডমিন ইউজারনেম ও পিন সফলভাবে পরিবর্তন করা হয়েছে!');
+    setTimeout(() => {
+      onClose();
+    }, 1200);
+  };
+
+  return (
+    <ModalLayout title="এডমিন পাসওয়ার্ড / পিন পরিবর্তন" subtitle="আপনার এডমিন লগইন ক্রেডেনশিয়াল আপডেট করুন" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-3.5">
+        <Field label="বর্তমান পিন কোড (Current PIN)">
+          <input
+            type="password"
+            value={currentPin}
+            onChange={e => setCurrentPin(e.target.value)}
+            placeholder="বর্তমান পিন দিন (ডিফল্ট: 5678)"
+            required
+            className={inputCls}
+          />
+        </Field>
+
+        <Field label="এডমিন ইউজারনেম (Admin Username)">
+          <input
+            type="text"
+            value={newUsername}
+            onChange={e => setNewUsername(e.target.value)}
+            placeholder="e.g. admin"
+            required
+            className={inputCls}
+          />
+        </Field>
+
+        <Field label="নতুন পিন কোড (New PIN)">
+          <input
+            type="password"
+            value={newPin}
+            onChange={e => setNewPin(e.target.value)}
+            placeholder="নতুন পিন লিখুন"
+            required
+            className={inputCls}
+          />
+        </Field>
+
+        <Field label="নতুন পিন নিশ্চিত করুন (Confirm New PIN)">
+          <input
+            type="password"
+            value={confirmPin}
+            onChange={e => setConfirmPin(e.target.value)}
+            placeholder="নতুন পিন পুনরায় লিখুন"
+            required
+            className={inputCls}
+          />
+        </Field>
+
+        {msg && (
+          <p className={`text-xs font-semibold p-2.5 rounded-lg ${isSuccess ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+            {msg}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-2.5 rounded-lg transition-colors mt-2"
+        >
+          সংরক্ষণ করুন (Save Changes)
+        </button>
+      </form>
+    </ModalLayout>
   );
 }
