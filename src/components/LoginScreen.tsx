@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { supabase, verifyAdminCredentials, getAdminCredentials } from '@/lib/supabase';
 import type { Student } from '@/lib/supabase';
 import type { SessionUser } from '@/App';
-import { GraduationCap, Loader2, AlertCircle } from 'lucide-react';
+import { GraduationCap, Loader2, AlertCircle, UserPlus, HelpCircle } from 'lucide-react';
 
 interface Props {
   onLogin: (user: SessionUser) => void;
@@ -132,6 +132,32 @@ export function LoginScreen({ onLogin }: Props) {
                 'Sign In'
               )}
             </button>
+
+            {/* Forgot Password */}
+            <div className="text-center pt-1">
+              <a
+                href={`https://wa.me/8801316831199?text=${encodeURIComponent("I forget my student id & password. \nName:\nClass: \nMobile: ")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-slate-500 hover:text-sky-600 transition-colors inline-flex items-center gap-1.5 font-medium hover:underline"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
+                <span>Forgot password?</span>
+              </a>
+            </div>
+
+            {/* Become a student (Transparent button) */}
+            <div className="pt-2">
+              <a
+                href={`https://wa.me/8801316831199?text=${encodeURIComponent("I want to be a student of you. My details is below: (Your message...)")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full border-2 border-sky-500 text-sky-600 hover:text-sky-700 hover:bg-sky-50/70 bg-transparent font-semibold py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 text-sm text-center"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Become a student</span>
+              </a>
+            </div>
           </form>
         </div>
       </div>
