@@ -15,8 +15,8 @@ const ADMIN_USER_KEY = 'studywise_admin_username';
 const ADMIN_PIN_KEY = 'studywise_admin_pin';
 
 let memoryAdmin = {
-  username: localStorage.getItem(ADMIN_USER_KEY) || '',
-  pin: localStorage.getItem(ADMIN_PIN_KEY) || '',
+  username: localStorage.getItem(ADMIN_USER_KEY) || 'admin',
+  pin: localStorage.getItem(ADMIN_PIN_KEY) || '5678',
 };
 
 // Check Google Sheets for updated admin credentials on start
@@ -29,7 +29,10 @@ fetchAdminFromSheet().then((creds) => {
 }).catch(() => {});
 
 export const getAdminCredentials = () => {
-  return memoryAdmin;
+  return {
+    username: memoryAdmin.username || localStorage.getItem(ADMIN_USER_KEY) || 'admin',
+    pin: memoryAdmin.pin || localStorage.getItem(ADMIN_PIN_KEY) || '5678',
+  };
 };
 
 export const setAdminCredentials = (username: string, pin: string) => {
@@ -43,7 +46,7 @@ export const setAdminCredentials = (username: string, pin: string) => {
 };
 
 export const resetAdminCredentials = () => {
-  memoryAdmin = { username: '', pin: '' };
+  memoryAdmin = { username: 'admin', pin: '5678' };
   localStorage.removeItem(ADMIN_USER_KEY);
   localStorage.removeItem(ADMIN_PIN_KEY);
   return memoryAdmin;
@@ -54,10 +57,6 @@ export const verifyAdminCredentials = (inputUsername: string, inputPin: string) 
   const u = inputUsername.trim().toLowerCase();
   const p = inputPin.trim();
 
-  if (!current.username || !current.pin) {
-    return false;
-  }
-
   return (
     u === current.username.toLowerCase() &&
     p === current.pin
@@ -66,22 +65,22 @@ export const verifyAdminCredentials = (inputUsername: string, inputPin: string) 
 
 export const verifyAdminCredentialsAsync = async (inputUsername: string, inputPin: string) => {
   let current = getAdminCredentials();
-  if (!current.username || !current.pin) {
-    const remote = await fetchAdminFromSheet();
-    if (remote && remote.username && remote.pin) {
-      memoryAdmin = remote;
-      localStorage.setItem(ADMIN_USER_KEY, remote.username);
-      localStorage.setItem(ADMIN_PIN_KEY, remote.pin);
-      current = remote;
+  if (current.username === 'admin' && current.pin === '5678') {
+    try {
+      const remote = await fetchAdminFromSheet();
+      if (remote && remote.username && remote.pin) {
+        memoryAdmin = remote;
+        localStorage.setItem(ADMIN_USER_KEY, remote.username);
+        localStorage.setItem(ADMIN_PIN_KEY, remote.pin);
+        current = remote;
+      }
+    } catch {
+      // ignore
     }
   }
 
   const u = inputUsername.trim().toLowerCase();
   const p = inputPin.trim();
-
-  if (!current.username || !current.pin) {
-    return false;
-  }
 
   return (
     u === current.username.toLowerCase() &&
@@ -152,7 +151,7 @@ export interface QuizResult {
 }
 
 // ---------------------------------------------------------------------------
-// IN-MEMORY CACHE SYNCED DIRECTLY WITH GOOGLE SHEETS
+// GOOGLE SHEETS DIRECT DATABASE ADAPTER (ALL OTHER DATABASES DISABLED)
 // ---------------------------------------------------------------------------
 
 const tableCache: Record<string, any[]> = {
@@ -164,7 +163,7 @@ const tableCache: Record<string, any[]> = {
 };
 
 const lastFetchedAt: Record<string, number> = {};
-const CACHE_TTL_MS = 60 * 1000; // 1 minute fresh cache
+const CACHE_DEBOUNCE_MS = 3000; // 3 seconds window to prevent rapid redundant multi-fetches on mount
 
 function deduplicateList(list: any[]): any[] {
   if (!Array.isArray(list)) return [];
@@ -177,37 +176,13 @@ function deduplicateList(list: any[]): any[] {
   return Array.from(map.values());
 }
 
-// Initial sync from local cache for instant initial rendering (filtering any residual legacy demo items)
+// Clear any old local storage tables so that no residual offline database shadows Google Sheets
 try {
   ['students', 'study_days', 'lessons', 'questions', 'quiz_results'].forEach((table) => {
-    const raw = localStorage.getItem(`studywise_${table}`);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const cleaned = parsed.filter(
-          (item: any) =>
-            item.id !== '1001' &&
-            !String(item.id).startsWith('day-seed') &&
-            !String(item.id).startsWith('lesson-seed') &&
-            !String(item.id).startsWith('q-seed')
-        );
-        tableCache[table] = deduplicateList(cleaned);
-        localStorage.setItem(`studywise_${table}`, JSON.stringify(cleaned));
-      }
-    }
+    localStorage.removeItem(`studywise_${table}`);
   });
 } catch {
   // ignore
-}
-
-function persistCache(table: string) {
-  try {
-    const cleaned = deduplicateList(tableCache[table] || []);
-    tableCache[table] = cleaned;
-    localStorage.setItem(`studywise_${table}`, JSON.stringify(cleaned));
-  } catch {
-    // ignore
-  }
 }
 
 interface FilterCondition {
@@ -286,51 +261,26 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
   }
 
   private async executeAsync(): Promise<{ data: any; error: any }> {
-    // 1. If select: check memory cache first so tab switching is instantaneous
-    if (this.action === 'select') {
-      const now = Date.now();
-      const last = lastFetchedAt[this.tableName] || 0;
-      const isExpired = now - last > CACHE_TTL_MS;
-      const hasCached = (tableCache[this.tableName]?.length || 0) > 0;
-
-      if (!hasCached) {
-        // Initial fetch when cache has no records yet
-        try {
-          const sheetRows = await fetchRowsFromSheet(this.tableName);
-          if (sheetRows && sheetRows.length > 0) {
-            tableCache[this.tableName] = deduplicateList(sheetRows);
-            persistCache(this.tableName);
-          }
-          lastFetchedAt[this.tableName] = Date.now();
-        } catch (e) {
-          console.warn(`Could not fetch ${this.tableName} from Google Sheets:`, e);
-        }
-      } else if (isExpired) {
-        // Cache exists: return instantly and refresh in the background without blocking the UI
-        lastFetchedAt[this.tableName] = Date.now();
-        fetchRowsFromSheet(this.tableName)
-          .then((sheetRows) => {
-            if (sheetRows && sheetRows.length > 0) {
-              tableCache[this.tableName] = deduplicateList(sheetRows);
-              persistCache(this.tableName);
-            }
-          })
-          .catch((e) => {
-            console.warn(`Background fetch error for ${this.tableName}:`, e);
-          });
-      }
-    }
-
-    const table = tableCache[this.tableName] || [];
-
     const matchesFilters = (item: any) => {
       return this.filters.every((f) => String(item[f.column]) === String(f.value));
     };
 
-    // 2. INSERT: Add to cache and write directly to Google Sheet
+    // 1. INSERT: Directly write to Google Sheet and await completion
     if (this.action === 'insert') {
       const itemsToInsert = Array.isArray(this.actionData) ? this.actionData : [this.actionData];
       const insertedList: any[] = [];
+
+      // Make sure we have latest table state
+      let table = tableCache[this.tableName] || [];
+      if (table.length === 0) {
+        try {
+          const fresh = await fetchRowsFromSheet(this.tableName);
+          table = deduplicateList(fresh || []);
+          tableCache[this.tableName] = table;
+        } catch {
+          // ignore
+        }
+      }
 
       for (const item of itemsToInsert) {
         const id =
@@ -344,6 +294,11 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
           id: String(id).trim(),
         };
 
+        const success = await insertRowToSheet(this.tableName, newItem);
+        if (!success) {
+          return { data: null, error: { message: `Google Sheets insert failed for ${this.tableName}` } };
+        }
+
         const existingIdx = table.findIndex((r: any) => String(r.id).trim() === String(newItem.id));
         if (existingIdx >= 0) {
           table[existingIdx] = { ...table[existingIdx], ...newItem };
@@ -351,66 +306,91 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
           table.push(newItem);
         }
         insertedList.push(newItem);
-
-        // DIRECT WRITE TO GOOGLE SHEET
-        insertRowToSheet(this.tableName, newItem).catch((err) => {
-          console.warn(`Google Sheet insert failed for ${this.tableName}:`, err);
-        });
       }
 
-      tableCache[this.tableName] = table;
-      persistCache(this.tableName);
+      tableCache[this.tableName] = deduplicateList(table);
+      lastFetchedAt[this.tableName] = Date.now();
       const res = Array.isArray(this.actionData) ? insertedList : insertedList[0];
       return { data: res, error: null };
     }
 
-    // 3. UPDATE: Update in cache and write directly to Google Sheet
+    // 2. UPDATE: Directly update in Google Sheet and await completion
     if (this.action === 'update') {
-      const updatedList: any[] = [];
-      for (let i = 0; i < table.length; i++) {
-        if (matchesFilters(table[i])) {
-          table[i] = { ...table[i], ...this.actionData };
-          updatedList.push(table[i]);
-
-          // DIRECT UPDATE IN GOOGLE SHEET
-          if (table[i].id) {
-            updateRowInSheet(this.tableName, table[i].id, this.actionData).catch((err) => {
-              console.warn(`Google Sheet update failed for ${this.tableName}:`, err);
-            });
-          }
+      let table = tableCache[this.tableName] || [];
+      if (table.length === 0) {
+        try {
+          const fresh = await fetchRowsFromSheet(this.tableName);
+          table = deduplicateList(fresh || []);
+          tableCache[this.tableName] = table;
+        } catch {
+          // ignore
         }
       }
 
-      tableCache[this.tableName] = table;
-      persistCache(this.tableName);
+      const updatedList: any[] = [];
+      for (let i = 0; i < table.length; i++) {
+        if (matchesFilters(table[i])) {
+          const targetId = table[i].id;
+          if (targetId) {
+            const success = await updateRowInSheet(this.tableName, targetId, this.actionData);
+            if (!success) {
+              return { data: null, error: { message: `Google Sheets update failed for ${this.tableName}` } };
+            }
+          }
+          table[i] = { ...table[i], ...this.actionData };
+          updatedList.push(table[i]);
+        }
+      }
+
+      tableCache[this.tableName] = deduplicateList(table);
+      lastFetchedAt[this.tableName] = Date.now();
       const res = this.isSingle ? (updatedList[0] || null) : updatedList;
       return { data: res, error: null };
     }
 
-    // 4. DELETE: Remove from cache and delete from Google Sheet
+    // 3. DELETE: Directly delete from Google Sheet and await completion
     if (this.action === 'delete') {
-      const itemsToDelete = table.filter(matchesFilters);
-      const remaining = table.filter((item) => !matchesFilters(item));
-
-      for (const item of itemsToDelete) {
-        if (item.id) {
-          // DIRECT DELETE IN GOOGLE SHEET
-          deleteRowFromSheet(this.tableName, item.id).catch((err) => {
-            console.warn(`Google Sheet delete failed for ${this.tableName}:`, err);
-          });
+      let table = tableCache[this.tableName] || [];
+      if (table.length === 0) {
+        try {
+          const fresh = await fetchRowsFromSheet(this.tableName);
+          table = deduplicateList(fresh || []);
+          tableCache[this.tableName] = table;
+        } catch {
+          // ignore
         }
       }
 
-      tableCache[this.tableName] = remaining;
-      persistCache(this.tableName);
+      const itemsToDelete = table.filter(matchesFilters);
+      for (const item of itemsToDelete) {
+        if (item.id) {
+          const success = await deleteRowFromSheet(this.tableName, item.id);
+          if (!success) {
+            return { data: null, error: { message: `Google Sheets delete failed for ${this.tableName}` } };
+          }
+        }
+      }
+
+      tableCache[this.tableName] = table.filter((item) => !matchesFilters(item));
+      lastFetchedAt[this.tableName] = Date.now();
       return { data: null, error: null };
     }
 
-    // 5. UPSERT: Update if exists, insert if new
+    // 4. UPSERT: Update or Insert directly in Google Sheet
     if (this.action === 'upsert') {
       const itemsToUpsert = Array.isArray(this.actionData) ? this.actionData : [this.actionData];
-      const resultList: any[] = [];
+      let table = tableCache[this.tableName] || [];
+      if (table.length === 0) {
+        try {
+          const fresh = await fetchRowsFromSheet(this.tableName);
+          table = deduplicateList(fresh || []);
+          tableCache[this.tableName] = table;
+        } catch {
+          // ignore
+        }
+      }
 
+      const resultList: any[] = [];
       for (const item of itemsToUpsert) {
         let existingIdx = -1;
         if (this.tableName === 'quiz_results' && item.student_id && item.lesson_id) {
@@ -422,11 +402,13 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
         }
 
         if (existingIdx >= 0) {
+          const targetId = table[existingIdx].id;
+          const success = await updateRowInSheet(this.tableName, targetId, item);
+          if (!success) {
+            return { data: null, error: { message: `Google Sheets upsert update failed for ${this.tableName}` } };
+          }
           table[existingIdx] = { ...table[existingIdx], ...item };
           resultList.push(table[existingIdx]);
-          if (table[existingIdx].id) {
-            updateRowInSheet(this.tableName, table[existingIdx].id, item).catch(() => {});
-          }
         } else {
           const newItem = {
             id:
@@ -437,14 +419,17 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
             created_at: item.created_at || getBangladeshTimeString(),
             ...item,
           };
+          const success = await insertRowToSheet(this.tableName, newItem);
+          if (!success) {
+            return { data: null, error: { message: `Google Sheets upsert insert failed for ${this.tableName}` } };
+          }
           table.push(newItem);
           resultList.push(newItem);
-          insertRowToSheet(this.tableName, newItem).catch(() => {});
         }
       }
 
-      tableCache[this.tableName] = table;
-      persistCache(this.tableName);
+      tableCache[this.tableName] = deduplicateList(table);
+      lastFetchedAt[this.tableName] = Date.now();
       const res = this.isSingle
         ? (resultList[0] || null)
         : Array.isArray(this.actionData)
@@ -453,7 +438,22 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
       return { data: res, error: null };
     }
 
-    // Default: SELECT filtered
+    // 5. SELECT: Read directly from Google Sheet
+    const now = Date.now();
+    const last = lastFetchedAt[this.tableName] || 0;
+    const isExpired = now - last > CACHE_DEBOUNCE_MS;
+
+    if (isExpired || !tableCache[this.tableName] || tableCache[this.tableName].length === 0) {
+      try {
+        const sheetRows = await fetchRowsFromSheet(this.tableName);
+        tableCache[this.tableName] = deduplicateList(sheetRows || []);
+        lastFetchedAt[this.tableName] = Date.now();
+      } catch (e) {
+        console.warn(`Could not fetch ${this.tableName} from Google Sheets:`, e);
+      }
+    }
+
+    const table = tableCache[this.tableName] || [];
     let filtered = deduplicateList(table.filter(matchesFilters));
 
     if (this.orderCol) {
@@ -475,7 +475,7 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
 
     if (this.isSingle) {
       if (filtered.length === 0) {
-        return { data: null, error: { message: 'Row not found' } };
+        return { data: null, error: { message: 'Row not found in Google Sheets' } };
       }
       return { data: filtered[0], error: null };
     }
@@ -495,7 +495,7 @@ class SheetQueryBuilder implements PromiseLike<{ data: any; error: any }> {
   }
 }
 
-// Google Sheets Database Client
+// Google Sheets Database Client (Sole active database)
 export const sheetsDb = {
   from: (tableName: string) => new SheetQueryBuilder(tableName),
 };

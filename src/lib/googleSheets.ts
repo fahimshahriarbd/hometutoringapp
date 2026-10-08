@@ -3,6 +3,7 @@ import type { Student, StudyDay, Lesson, Question, QuizResult } from './supabase
 import { getBangladeshTimeString } from './time';
 
 export const GOOGLE_APPS_SCRIPT_URL =
+  (import.meta.env.VITE_GOOGLE_APPS_SCRIPT_URL as string | undefined) ||
   'https://script.google.com/macros/s/AKfycbwesalffjJI8qSlvjN56k_caEPhp6w5HL-1hTnk53cVfmTNegyUIDPyARqqmJbXx50EtQ/exec';
 
 export const TAB_SCHEMAS: Record<string, { title: string; headers: string[]; keys: string[] }> = {

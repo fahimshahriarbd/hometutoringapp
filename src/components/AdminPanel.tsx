@@ -3,6 +3,7 @@ import { supabase, getAdminCredentials, setAdminCredentials } from '@/lib/supaba
 import type { Student, StudyDay, Lesson, Question, QuizResult } from '@/lib/supabase';
 import type { SessionUser } from '@/App';
 import { formatDayDate, getBangladeshDateString } from '@/lib/time';
+import { GoogleSheetsBar } from '@/components/GoogleSheetsBar';
 import {
   GraduationCap, LogOut, Search, Plus, Pencil, Trash2, X, Loader2,
   Users, BookOpen, HelpCircle, BarChart3, KeyRound,
@@ -80,6 +81,7 @@ export function AdminPanel({ user, onLogout }: Props) {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
+        <GoogleSheetsBar />
         <div className={tab === 'students' ? 'block' : 'hidden'}><StudentsTab /></div>
         <div className={tab === 'lessons' ? 'block' : 'hidden'}><LessonsTab /></div>
         <div className={tab === 'questions' ? 'block' : 'hidden'}><QuestionsTab /></div>
@@ -100,15 +102,8 @@ export function AdminPanel({ user, onLogout }: Props) {
 // =================== STUDENTS TAB ===================
 
 function StudentsTab() {
-  const [students, setStudents] = useState<Student[]>(() => {
-    try {
-      const raw = localStorage.getItem('studywise_students');
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [loading, setLoading] = useState(false);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editStudent, setEditStudent] = useState<Student | null>(null);
@@ -858,22 +853,35 @@ function EditQuestionModal({ question, onClose, onSaved }: { question: Question;
 function ResultsTab() {
   const [results, setResults] = useState<QuizResult[]>([]);
   const [loading, setLoading] = useState(true);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const loadResults = async () => {
+    try {
+      const { data, error } = await supabase.from('quiz_results').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      const rawResults = (data || []) as QuizResult[];
+      const uniqueResults = Array.from(new Map(rawResults.map(r => [String(r.id).trim(), r])).values());
+      setResults(uniqueResults);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const { data, error } = await supabase.from('quiz_results').select('*').order('created_at', { ascending: false });
-        if (error) throw error;
-        const rawResults = (data || []) as QuizResult[];
-        const uniqueResults = Array.from(new Map(rawResults.map(r => [String(r.id).trim(), r])).values());
-        setResults(uniqueResults);
-      } catch {
-        setResults([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadResults();
   }, []);
+
+  const handleDeleteResult = async (id: string) => {
+    try {
+      await supabase.from('quiz_results').delete().eq('id', id);
+      setResults(prev => prev.filter(r => r.id !== id));
+    } catch {
+      // ignore
+    }
+    setConfirmDelete(null);
+  };
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -890,9 +898,11 @@ function ResultsTab() {
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100">
-        <h3 className="text-sm font-bold text-slate-800">Quiz Submissions</h3>
-        <p className="text-xs text-slate-500 mt-0.5">Student scores &amp; percentages</p>
+      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-bold text-slate-800">Quiz Submissions</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Student scores &amp; percentages directly from Google Sheets</p>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -903,6 +913,7 @@ function ResultsTab() {
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600">Score</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600">Pct</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-600">Date</th>
+              <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-600">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -913,11 +924,29 @@ function ResultsTab() {
                 <td className="px-4 py-2.5"><span className="font-bold text-green-600">{r.score} / {r.total}</span></td>
                 <td className="px-4 py-2.5 text-slate-700">{r.percentage}%</td>
                 <td className="px-4 py-2.5 text-slate-500 text-xs">{formatDate(r.created_at)}</td>
+                <td className="px-4 py-2.5 text-right">
+                  <button
+                    onClick={() => setConfirmDelete(r.id)}
+                    className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors"
+                    title="Delete Result"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Delete Result"
+          message="Are you sure you want to delete this quiz result from Google Sheets?"
+          onConfirm={() => handleDeleteResult(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   );
 }
