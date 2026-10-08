@@ -57,7 +57,7 @@ export function GoogleSheetsBar() {
     } catch (err: any) {
       if (err?.code === 'auth/popup-closed-by-user' || err?.message?.includes('popup-closed-by-user')) {
         setStatusType('info');
-        setStatusMessage('গুগল সাইন-ইন উইন্ডোটি বন্ধ করা হয়েছে। সাইন-ইন সম্পন্ন করতে পুনরায় বাটনে ক্লিক করে "Continue" চাপুন।');
+        setStatusMessage('Google Sign-In popup was closed. Click the button again and select "Continue" to proceed.');
       } else {
         setStatusType('error');
         setStatusMessage(err.message || 'Failed to sign in with Google.');
@@ -91,7 +91,6 @@ export function GoogleSheetsBar() {
   };
 
   const handleSyncAll = async () => {
-    // Confirmation dialog before overwriting / updating spreadsheet data
     const confirmed = window.confirm(
       'Are you sure you want to sync all current records (Students, Lessons, Questions, and Quiz Results) to your Google Sheet? This will update the sheet data.'
     );
@@ -100,7 +99,6 @@ export function GoogleSheetsBar() {
     setIsSyncing(true);
     setStatusMessage(null);
     try {
-      // Fetch all records
       const [sRes, dRes, lRes, qRes, rRes] = await Promise.all([
         supabase.from('students').select('*'),
         supabase.from('study_days').select('*'),
@@ -149,22 +147,22 @@ export function GoogleSheetsBar() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-slate-800">Google Sheets ডাটা সেভ</h3>
+              <h3 className="text-sm font-bold text-slate-800">Google Sheets Cloud Storage</h3>
               {currentUser ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                   <CheckCircle className="w-3 h-3 text-emerald-600" />
-                  সংযুক্ত
+                  Connected
                 </span>
               ) : (
                 <span className="text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                  সংযুক্ত নয়
+                  Not Connected
                 </span>
               )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               {currentUser
-                ? `গুগল একাউন্ট: ${currentUser.email || currentUser.displayName}`
-                : 'গুগল একাউন্টে সাইন ইন করে সরাসরি গুগল শীটে ডাটা সেভ করুন'}
+                ? `Account: ${currentUser.email || currentUser.displayName}`
+                : 'Sign in with Google to automatically backup and sync records to Google Sheets'}
             </p>
           </div>
         </div>
@@ -199,7 +197,7 @@ export function GoogleSheetsBar() {
                   />
                 </svg>
               )}
-              <span>গুগল দিয়ে সাইন ইন করুন</span>
+              <span>Sign in with Google</span>
             </button>
           ) : (
             <>
@@ -211,7 +209,7 @@ export function GoogleSheetsBar() {
                   className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg transition-colors"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>গুগল শীট খুলুন</span>
+                  <span>Open in Google Sheets</span>
                 </a>
               ) : (
                 <button
@@ -220,23 +218,23 @@ export function GoogleSheetsBar() {
                   className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg shadow-sm transition-colors disabled:opacity-60"
                 >
                   {isCreatingSheet ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Table className="w-3.5 h-3.5" />}
-                  <span>নতুন শীট তৈরি করুন</span>
+                  <span>Create Spreadsheet</span>
                 </button>
               )}
 
               <button
                 onClick={handleSyncAll}
                 disabled={isSyncing}
-                title="সমস্ত ডাটা গুগল শীটে সিঙ্ক করুন"
+                title="Sync all database records to Google Sheets"
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isSyncing ? 'সিঙ্ক হচ্ছে...' : 'শীটে সিঙ্ক করুন'}</span>
+                <span>{isSyncing ? 'Syncing...' : 'Sync to Sheets'}</span>
               </button>
 
               <button
                 onClick={handleSignOut}
-                title="সাইন আউট"
+                title="Disconnect Google Account"
                 className="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -248,8 +246,8 @@ export function GoogleSheetsBar() {
 
       {!currentUser && (
         <div className="mt-2.5 pt-2 border-t border-emerald-100/70 text-[11px] text-slate-500 flex items-center gap-1.5">
-          <span className="font-semibold text-emerald-700">টিপ:</span>
-          <span>গুগল পপআপে "Google hasn’t verified this app" সতর্কতা আসলে নিচে <strong>Continue</strong> বাটনে ক্লিক করে পারমিশন দিন।</span>
+          <span className="font-semibold text-emerald-700">Tip:</span>
+          <span>If Google displays "Google hasn’t verified this app", click <strong>Continue</strong> to grant permissions.</span>
         </div>
       )}
 

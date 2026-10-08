@@ -28,10 +28,9 @@ export function LoginScreen({ onLogin }: Props) {
 
     try {
       // Check admin first
-      if (verifyAdminCredentials(trimmedId, trimmedPin)) {
-        const adminName = getAdminCredentials().username;
-        const displayName = adminName.charAt(0).toUpperCase() + adminName.slice(1);
-        onLogin({ role: 'admin', name: displayName });
+      const adminMatch = verifyAdminCredentials(trimmedId, trimmedPin);
+      if (adminMatch) {
+        onLogin({ role: 'admin', name: adminMatch.name || adminMatch.id });
         return;
       }
 

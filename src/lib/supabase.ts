@@ -7,27 +7,99 @@ const rawAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const ADMIN_USERNAME = 'admin';
 export const ADMIN_PIN = '5678';
 
-const ADMIN_USER_KEY = 'studywise_admin_username';
-const ADMIN_PIN_KEY = 'studywise_admin_pin';
+export interface AdminAccount {
+  id: string; // login ID (e.g. 'admin', 'tutor1')
+  name: string; // display name
+  pin: string; // 4-digit PIN
+}
+
+const ADMINS_LIST_KEY = 'studywise_admins_list';
+
+export const getAdminList = (): AdminAccount[] => {
+  try {
+    const raw = localStorage.getItem(ADMINS_LIST_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  const defaultUser = localStorage.getItem('studywise_admin_username') || ADMIN_USERNAME;
+  const defaultPin = localStorage.getItem('studywise_admin_pin') || ADMIN_PIN;
+  return [{ id: defaultUser, name: defaultUser === 'admin' ? 'Head Tutor' : defaultUser, pin: defaultPin }];
+};
+
+export const saveAdminList = (admins: AdminAccount[]) => {
+  try {
+    localStorage.setItem(ADMINS_LIST_KEY, JSON.stringify(admins));
+    if (admins.length > 0) {
+      localStorage.setItem('studywise_admin_username', admins[0].id);
+      localStorage.setItem('studywise_admin_pin', admins[0].pin);
+    }
+  } catch {
+    // ignore
+  }
+};
 
 export const getAdminCredentials = () => {
+  const list = getAdminList();
   return {
-    username: localStorage.getItem(ADMIN_USER_KEY) || ADMIN_USERNAME,
-    pin: localStorage.getItem(ADMIN_PIN_KEY) || ADMIN_PIN,
+    username: list[0]?.id || ADMIN_USERNAME,
+    pin: list[0]?.pin || ADMIN_PIN,
   };
 };
 
 export const setAdminCredentials = (username: string, pin: string) => {
-  localStorage.setItem(ADMIN_USER_KEY, username.trim());
-  localStorage.setItem(ADMIN_PIN_KEY, pin.trim());
+  const list = getAdminList();
+  if (list.length > 0) {
+    list[0].id = username.trim();
+    list[0].pin = pin.trim();
+  } else {
+    list.push({ id: username.trim(), name: username.trim(), pin: pin.trim() });
+  }
+  saveAdminList(list);
 };
 
-export const verifyAdminCredentials = (inputUsername: string, inputPin: string) => {
-  const current = getAdminCredentials();
-  return (
-    inputUsername.trim().toLowerCase() === current.username.toLowerCase() &&
-    inputPin.trim() === current.pin
+export const verifyAdminCredentials = (inputUsername: string, inputPin: string): AdminAccount | null => {
+  const list = getAdminList();
+  const match = list.find(
+    (a) => a.id.toLowerCase() === inputUsername.trim().toLowerCase() && a.pin === inputPin.trim()
   );
+  return match || null;
+};
+
+export const addAdminAccount = (account: AdminAccount): boolean => {
+  const list = getAdminList();
+  if (list.some((a) => a.id.toLowerCase() === account.id.trim().toLowerCase())) {
+    return false;
+  }
+  list.push({
+    id: account.id.trim(),
+    name: account.name.trim(),
+    pin: account.pin.trim(),
+  });
+  saveAdminList(list);
+  return true;
+};
+
+export const deleteAdminAccount = (adminId: string): boolean => {
+  let list = getAdminList();
+  if (list.length <= 1) return false;
+  list = list.filter((a) => a.id.toLowerCase() !== adminId.toLowerCase());
+  saveAdminList(list);
+  return true;
+};
+
+export const updateAdminAccount = (adminId: string, updated: Partial<AdminAccount>): boolean => {
+  const list = getAdminList();
+  const idx = list.findIndex((a) => a.id.toLowerCase() === adminId.toLowerCase());
+  if (idx >= 0) {
+    list[idx] = { ...list[idx], ...updated };
+    saveAdminList(list);
+    return true;
+  }
+  return false;
 };
 
 export interface Student {

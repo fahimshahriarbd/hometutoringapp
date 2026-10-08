@@ -47,7 +47,7 @@ export function AdminPanel({ user, onLogout }: Props) {
               className="flex items-center gap-1.5 text-xs text-slate-700 hover:text-sky-600 font-medium px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-sky-50 transition-colors"
             >
               <KeyRound className="w-3.5 h-3.5 text-slate-500" />
-              <span>পাসওয়ার্ড পরিবর্তন</span>
+              <span>Change Password</span>
             </button>
             <button
               onClick={onLogout}
@@ -992,58 +992,58 @@ function ChangeAdminPasswordModal({ onClose }: { onClose: () => void }) {
     setMsg('');
 
     if (currentPin.trim() !== currentCreds.pin) {
-      setMsg('বর্তমান পিন কোডটি সঠিক নয়।');
+      setMsg('Current PIN is incorrect.');
       setIsSuccess(false);
       return;
     }
 
     if (!newUsername.trim()) {
-      setMsg('এডমিন ইউজারনেম খালি রাখা যাবে না।');
+      setMsg('Admin username cannot be empty.');
       setIsSuccess(false);
       return;
     }
 
     if (!newPin.trim()) {
-      setMsg('নতুন পিন কোড প্রদান করুন।');
+      setMsg('Please enter a new PIN.');
       setIsSuccess(false);
       return;
     }
 
     if (newPin.trim().length < 4) {
-      setMsg('নতুন পিন কোড কমপক্ষে ৪ ডিজিটের হতে হবে।');
+      setMsg('New PIN must be at least 4 digits.');
       setIsSuccess(false);
       return;
     }
 
     if (newPin.trim() !== confirmPin.trim()) {
-      setMsg('নতুন পিন এবং নিশ্চিতকরণ পিন মিলছে না।');
+      setMsg('New PIN and confirmation PIN do not match.');
       setIsSuccess(false);
       return;
     }
 
     setAdminCredentials(newUsername.trim(), newPin.trim());
     setIsSuccess(true);
-    setMsg('এডমিন ইউজারনেম ও পিন সফলভাবে পরিবর্তন করা হয়েছে!');
+    setMsg('Admin credentials updated successfully!');
     setTimeout(() => {
       onClose();
     }, 1200);
   };
 
   return (
-    <ModalLayout title="এডমিন পাসওয়ার্ড / পিন পরিবর্তন" subtitle="আপনার এডমিন লগইন ক্রেডেনশিয়াল আপডেট করুন" onClose={onClose}>
+    <ModalLayout title="Change Admin Password / PIN" subtitle="Update your administrator credentials" onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-3.5">
-        <Field label="বর্তমান পিন কোড (Current PIN)">
+        <Field label="Current PIN">
           <input
             type="password"
             value={currentPin}
             onChange={e => setCurrentPin(e.target.value)}
-            placeholder="বর্তমান পিন দিন (ডিফল্ট: 5678)"
+            placeholder="Enter current PIN (Default: 5678)"
             required
             className={inputCls}
           />
         </Field>
 
-        <Field label="এডমিন ইউজারনেম (Admin Username)">
+        <Field label="Admin Username">
           <input
             type="text"
             value={newUsername}
@@ -1054,23 +1054,23 @@ function ChangeAdminPasswordModal({ onClose }: { onClose: () => void }) {
           />
         </Field>
 
-        <Field label="নতুন পিন কোড (New PIN)">
+        <Field label="New PIN">
           <input
             type="password"
             value={newPin}
             onChange={e => setNewPin(e.target.value)}
-            placeholder="নতুন পিন লিখুন"
+            placeholder="Enter new 4-digit PIN"
             required
             className={inputCls}
           />
         </Field>
 
-        <Field label="নতুন পিন নিশ্চিত করুন (Confirm New PIN)">
+        <Field label="Confirm New PIN">
           <input
             type="password"
             value={confirmPin}
             onChange={e => setConfirmPin(e.target.value)}
-            placeholder="নতুন পিন পুনরায় লিখুন"
+            placeholder="Re-enter new PIN"
             required
             className={inputCls}
           />
@@ -1086,7 +1086,7 @@ function ChangeAdminPasswordModal({ onClose }: { onClose: () => void }) {
           type="submit"
           className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-2.5 rounded-lg transition-colors mt-2"
         >
-          সংরক্ষণ করুন (Save Changes)
+          Save Changes
         </button>
       </form>
     </ModalLayout>
