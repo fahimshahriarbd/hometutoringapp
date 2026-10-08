@@ -8,9 +8,6 @@ import {
   saveAdminToSheet,
 } from './googleSheets';
 
-export const ADMIN_USERNAME = 'admin';
-export const ADMIN_PIN = '5678';
-
 import { getBangladeshTimeString, getBangladeshDateString, formatDayDate } from './time';
 export { getBangladeshTimeString, getBangladeshDateString, formatDayDate };
 
@@ -18,13 +15,13 @@ const ADMIN_USER_KEY = 'studywise_admin_username';
 const ADMIN_PIN_KEY = 'studywise_admin_pin';
 
 let memoryAdmin = {
-  username: localStorage.getItem(ADMIN_USER_KEY) || ADMIN_USERNAME,
-  pin: localStorage.getItem(ADMIN_PIN_KEY) || ADMIN_PIN,
+  username: localStorage.getItem(ADMIN_USER_KEY) || '',
+  pin: localStorage.getItem(ADMIN_PIN_KEY) || '',
 };
 
 // Check Google Sheets for updated admin credentials on start
 fetchAdminFromSheet().then((creds) => {
-  if (creds) {
+  if (creds && creds.username && creds.pin) {
     memoryAdmin = creds;
     localStorage.setItem(ADMIN_USER_KEY, creds.username);
     localStorage.setItem(ADMIN_PIN_KEY, creds.pin);
@@ -46,10 +43,9 @@ export const setAdminCredentials = (username: string, pin: string) => {
 };
 
 export const resetAdminCredentials = () => {
-  memoryAdmin = { username: ADMIN_USERNAME, pin: ADMIN_PIN };
-  localStorage.setItem(ADMIN_USER_KEY, ADMIN_USERNAME);
-  localStorage.setItem(ADMIN_PIN_KEY, ADMIN_PIN);
-  saveAdminToSheet(ADMIN_USERNAME, ADMIN_PIN).catch(() => {});
+  memoryAdmin = { username: '', pin: '' };
+  localStorage.removeItem(ADMIN_USER_KEY);
+  localStorage.removeItem(ADMIN_PIN_KEY);
   return memoryAdmin;
 };
 
@@ -58,9 +54,33 @@ export const verifyAdminCredentials = (inputUsername: string, inputPin: string) 
   const u = inputUsername.trim().toLowerCase();
   const p = inputPin.trim();
 
-  // Always allow default credentials as master recovery
-  if (u === ADMIN_USERNAME && p === ADMIN_PIN) {
-    return true;
+  if (!current.username || !current.pin) {
+    return false;
+  }
+
+  return (
+    u === current.username.toLowerCase() &&
+    p === current.pin
+  );
+};
+
+export const verifyAdminCredentialsAsync = async (inputUsername: string, inputPin: string) => {
+  let current = getAdminCredentials();
+  if (!current.username || !current.pin) {
+    const remote = await fetchAdminFromSheet();
+    if (remote && remote.username && remote.pin) {
+      memoryAdmin = remote;
+      localStorage.setItem(ADMIN_USER_KEY, remote.username);
+      localStorage.setItem(ADMIN_PIN_KEY, remote.pin);
+      current = remote;
+    }
+  }
+
+  const u = inputUsername.trim().toLowerCase();
+  const p = inputPin.trim();
+
+  if (!current.username || !current.pin) {
+    return false;
   }
 
   return (
@@ -135,72 +155,11 @@ export interface QuizResult {
 // IN-MEMORY CACHE SYNCED DIRECTLY WITH GOOGLE SHEETS
 // ---------------------------------------------------------------------------
 
-const SEED_STUDENTS: Student[] = [
-  {
-    id: '1001',
-    name: 'Student 01',
-    class_name: 'HSC 2nd Year',
-    subjects: 'Biology, Chemistry',
-    image_url: '',
-    pin: '1234',
-    created_at: getBangladeshTimeString(),
-  },
-];
-
-const SEED_STUDY_DAYS: StudyDay[] = [
-  {
-    id: 'day-seed-1',
-    student_id: '1001',
-    day_label: 'DAY-1',
-    day_date: getBangladeshDateString(),
-    created_at: getBangladeshTimeString(),
-  },
-];
-
-const SEED_LESSONS: Lesson[] = [
-  {
-    id: 'lesson-seed-1',
-    study_day_id: 'day-seed-1',
-    subject: 'Biology',
-    short_note: 'Cell division (Mitosis & Meiosis) and chromosomal structures.',
-    pdf_url: '',
-    test_enabled: true,
-    created_at: getBangladeshTimeString(),
-  },
-];
-
-const SEED_QUESTIONS: Question[] = [
-  {
-    id: 'q-seed-1',
-    lesson_id: 'lesson-seed-1',
-    question: 'During which phase of mitosis do chromosomes align at the equatorial plate?',
-    option_a: 'Prophase',
-    option_b: 'Metaphase',
-    option_c: 'Anaphase',
-    option_d: 'Telophase',
-    answer: 'B',
-    explanation: 'Chromosomes align along the metaphase plate during metaphase.',
-    created_at: getBangladeshTimeString(),
-  },
-  {
-    id: 'q-seed-2',
-    lesson_id: 'lesson-seed-1',
-    question: 'How many daughter cells are produced at the end of Meiosis?',
-    option_a: '2 diploid cells',
-    option_b: '4 diploid cells',
-    option_c: '4 haploid cells',
-    option_d: '2 haploid cells',
-    answer: 'C',
-    explanation: 'Meiosis results in 4 genetically unique haploid daughter cells.',
-    created_at: getBangladeshTimeString(),
-  },
-];
-
 const tableCache: Record<string, any[]> = {
-  students: SEED_STUDENTS,
-  study_days: SEED_STUDY_DAYS,
-  lessons: SEED_LESSONS,
-  questions: SEED_QUESTIONS,
+  students: [],
+  study_days: [],
+  lessons: [],
+  questions: [],
   quiz_results: [],
 };
 
@@ -218,14 +177,22 @@ function deduplicateList(list: any[]): any[] {
   return Array.from(map.values());
 }
 
-// Initial sync from local cache for instant initial rendering
+// Initial sync from local cache for instant initial rendering (filtering any residual legacy demo items)
 try {
   ['students', 'study_days', 'lessons', 'questions', 'quiz_results'].forEach((table) => {
     const raw = localStorage.getItem(`studywise_${table}`);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        tableCache[table] = deduplicateList(parsed);
+        const cleaned = parsed.filter(
+          (item: any) =>
+            item.id !== '1001' &&
+            !String(item.id).startsWith('day-seed') &&
+            !String(item.id).startsWith('lesson-seed') &&
+            !String(item.id).startsWith('q-seed')
+        );
+        tableCache[table] = deduplicateList(cleaned);
+        localStorage.setItem(`studywise_${table}`, JSON.stringify(cleaned));
       }
     }
   });

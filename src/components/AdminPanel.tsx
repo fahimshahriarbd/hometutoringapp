@@ -1038,7 +1038,7 @@ function ChangeAdminPasswordModal({ onClose }: { onClose: () => void }) {
             type="password"
             value={currentPin}
             onChange={e => setCurrentPin(e.target.value)}
-            placeholder="Enter current PIN (Default: 5678)"
+            placeholder="Enter current PIN"
             required
             className={inputCls}
           />
